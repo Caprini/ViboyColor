@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0492 - Detectar Clear VRAM y Carga de Tiles -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-29__0492__detectar-clear-vram-y-carga-de-tiles.html" class="entry-link">
+                                    Detectar Clear VRAM y Carga de Tiles
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-29 | 
+                            <strong>Step ID:</strong> 0492 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de tracking detallado de escrituras a VRAM (especialmente tiledata) para diagnosticar por qué el emulador muestra pantalla en blanco en modo DMG y CGB. Se añadieron métricas para detectar cuándo se completa el "clear VRAM" inicial (6144 bytes de tiledata escritos con cero) y si hay writes no-cero después del clear (indicando carga de tiles). Se implementó un A/B test comparando dos perfiles post-boot DMG diferentes (A: LCDC=0x00, B: LCDC=0x91). Resultado clave: CGB SÍ está cargando tiles (first non-zero write en frame 174), pero los framebuffers siguen siendo blancos, lo que indica un problema en el pipeline de renderizado. DMG no muestra carga de tiles en ningún perfil. Reporte completo en docs/reports/reporte_step0492.md.
+                        </p>
+                    </li>
                     <!-- Entrada 0491 - DMG Tiledata Cero + CGB Present Blanco -->
                     <li>
                         <div class="entry-header">

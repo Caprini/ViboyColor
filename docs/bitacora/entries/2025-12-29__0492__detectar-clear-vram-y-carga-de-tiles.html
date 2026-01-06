@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Detectar Clear VRAM y Carga de Tiles - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Detectar Clear VRAM y Carga de Tiles</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-29
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0492
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-29__0491__dmg-tiledata-cero-cgb-present-blanco.html">Anterior (0491)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este step implementa tracking detallado de escrituras a VRAM (especialmente tiledata) para diagnosticar por qué el emulador muestra pantalla en blanco en modo DMG y CGB. Se añadieron métricas para detectar cuándo se completa el "clear VRAM" inicial (6144 bytes de tiledata escritos con cero) y si hay writes no-cero después del clear (indicando carga de tiles). Se implementó un A/B test comparando dos perfiles post-boot DMG diferentes (A: LCDC=0x00, B: LCDC=0x91). Resultado clave: CGB SÍ está cargando tiles (first non-zero write en frame 174), pero los framebuffers siguen siendo blancos, lo que indica un problema en el pipeline de renderizado. DMG no muestra carga de tiles en ningún perfil.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>VRAM (Video RAM)</strong>: Región de memoria 0x8000-0x9FFF donde se almacenan los datos gráficos del Game Boy. Se divide en:
+                </p>
+                <ul>
+                    <li><strong>Tiledata (0x8000-0x97FF)</strong>: Datos de píxeles para tiles de 8x8. 384 tiles × 16 bytes = 6144 bytes.</li>
+                    <li><strong>Tilemap (0x9800-0x9FFF)</strong>: Mapa de IDs de tiles que referencia tiledata. 32×32 tiles = 1024 bytes por mapa.</li>
+                </ul>
+                <p>
+                    <strong>Clear VRAM</strong>: Muchos juegos escriben ceros a toda la región de tiledata durante la inicialización para "limpiar" la VRAM antes de cargar los datos gráficos reales. Este proceso típicamente escribe 6144 bytes (todo el tiledata bank 0) con valor 0x00.
+                </p>
+                <p>
+                    <strong>Post-Boot State</strong>: El estado inicial de los registros I/O después de que la Boot ROM termina. Según Pan Docs, LCDC debe estar OFF (0x00) inicialmente, pero algunos emuladores usan LCDC=0x91 (LCD ON, BG y Window habilitados) como estado alternativo. El A/B test compara ambos estados para determinar cuál permite que el juego progrese correctamente.
+                </p>
+                <p>
+                    <strong>Referencia:</strong> Pan Docs - "VRAM", "LCDC Register (0xFF40)", "Power Up Sequence"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>Fase A: Tracking de Clear VRAM</h3>
+                <h4>A1: Métricas en VRAMWriteStats</h4>
+                <p>
+                    Se añadieron nuevos campos a `struct VRAMWriteStats` en `MMU.hpp`:
+                </p>
+                <ul>
+                    <li><code>tiledata_clear_done_frame</code>: Frame en el que se completó el clear (cuando se alcanzan 6144 intentos)</li>
+                    <li><code>tiledata_attempts_after_clear</code>: Contador de intentos de escritura después del clear</li>
+                    <li><code>tiledata_nonzero_after_clear</code>: Contador de writes no-cero después del clear</li>
+                    <li><code>tiledata_first_nonzero_frame</code>, <code>tiledata_first_nonzero_pc</code>, <code>tiledata_first_nonzero_addr</code>, <code>tiledata_first_nonzero_val</code>: Información del primer write no-cero</li>
+                    <li><code>tiledata_write_ring_</code>: Ring buffer de 128 eventos de writes recientes</li>
+                </ul>
+                
+                <h4>A2: Lógica de Tracking en MMU::write()</h4>
+                <p>
+                    Se implementó la lógica en `MMU::write()` para detectar el clear y trackear writes posteriores:
+                </p>
+                <ul>
+                    <li>Cuando se escribe a tiledata (0x8000-0x97FF), se incrementa <code>tiledata_attempts_bank0</code></li>
+                    <li>Cuando se alcanzan 6144 intentos, se marca <code>tiledata_clear_done_frame</code> con el frame actual</li>
+                    <li>Después del clear, se trackean todos los writes a tiledata y se cuenta cuántos son no-cero</li>
+                    <li>El primer write no-cero se registra en los campos <code>tiledata_first_nonzero_*</code></li>
+                    <li>Los writes no-cero se añaden a un ring buffer para análisis posterior</li>
+                </ul>
+                
+                <h4>A3: Exposición a Python</h4>
+                <p>
+                    Se actualizó <code>PyMMU::get_vram_write_stats()</code> en <code>mmu.pyx</code> para exponer todos los nuevos campos, incluyendo el ring buffer convertido a una lista de diccionarios Python.
+                </p>
+                
+                <h4>A4: Integración en Snapshots</h4>
+                <p>
+                    Se modificó <code>rom_smoke_0442.py</code> para incluir las nuevas métricas en los snapshots generados, permitiendo análisis post-mortem de los datos.
+                </p>
+                
+                <h3>Fase B: Modo "Stop Early"</h3>
+                <h4>B1: Argumento --stop-early-on-first-nonzero</h4>
+                <p>
+                    Se añadió el argumento <code>--stop-early-on-first-nonzero</code> a <code>rom_smoke_0442.py</code> que detiene la emulación cuando se detecta el primer write no-cero a tiledata después del clear, o después de 3000 frames si no se detecta ningún write no-cero.
+                </p>
+                
+                <h4>B2: Sección "AfterClear" en Snapshots</h4>
+                <p>
+                    Se añadió una sección "AfterClear" a los snapshots que captura métricas solo después de que se complete el clear VRAM:
+                </p>
+                <ul>
+                    <li><code>frames_since_clear</code>: Frames transcurridos desde el clear</li>
+                    <li><code>pc_hotspots_top3</code>: Top 3 direcciones PC más ejecutadas después del clear</li>
+                    <li><code>io_reads_top3</code>: Top 3 registros I/O más leídos después del clear</li>
+                </ul>
+                
+                <h3>Fase C: A/B Test Post-Boot DMG</h3>
+                <h4>C1: Perfil B (Alternativo)</h4>
+                <p>
+                    Se implementó <code>init_post_boot_dmg_state_profile_b()</code> que establece un estado post-boot alternativo con LCDC=0x91 (LCD operativo) en lugar de LCDC=0x00 (LCD OFF).
+                </p>
+                
+                <h4>C2: Gate por Variable de Entorno</h4>
+                <p>
+                    Se modificó <code>MMU::initialize_io_registers()</code> para seleccionar entre Perfil A (default) y Perfil B basándose en la variable de entorno <code>VIBOY_POST_BOOT_DMG_PROFILE</code>.
+                </p>
+                
+                <h3>Fase D: CGB Present-Trace</h3>
+                <p>
+                    Se ejecutó <code>rom_smoke_0442.py</code> para <code>tetris_dx.gbc</code> con las variables de entorno necesarias para diagnosticar el problema de presentación en CGB:
+                </p>
+                <ul>
+                    <li><code>VIBOY_DEBUG_PRESENT_TRACE=1</code>: Habilita tracing del pipeline de presentación</li>
+                    <li><code>VIBOY_DUMP_RGB_FRAME=180</code>: Dump del framebuffer RGB en frame 180</li>
+                    <li><code>VIBOY_DUMP_IDX_FRAME=180</code>: Dump del framebuffer de índices en frame 180</li>
+                    <li><code>VIBOY_DUMP_PRESENT_FRAME=180</code>: Dump del framebuffer de presentación en frame 180</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/MMU.hpp</code> - Añadidos campos a <code>VRAMWriteStats</code> y método <code>init_post_boot_dmg_state_profile_b()</code></li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Implementado tracking de clear VRAM y perfil B post-boot</li>
+                    <li><code>src/core/cython/mmu.pxd</code> - Actualizado struct <code>VRAMWriteStats</code> y añadido <code>TiledataWriteEvent</code></li>
+                    <li><code>src/core/cython/mmu.pyx</code> - Exposición de nuevos campos a Python</li>
+                    <li><code>tools/rom_smoke_0442.py</code> - Modo "stop early" y sección "AfterClear" en snapshots</li>
+                    <li><code>docs/reports/reporte_step0492.md</code> - Reporte comparativo completo</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutaron tres tests principales:
+                </p>
+                <ul>
+                    <li><strong>DMG Profile A</strong>: <code>rom_smoke_0442.py roms/tetris.gb --frames 3000 --stop-early-on-first-nonzero</code> con <code>VIBOY_POST_BOOT_DMG_PROFILE=A</code></li>
+                    <li><strong>DMG Profile B</strong>: Mismo comando con <code>VIBOY_POST_BOOT_DMG_PROFILE=B</code></li>
+                    <li><strong>CGB</strong>: <code>rom_smoke_0442.py roms/tetris_dx.gbc --frames 3000 --stop-early-on-first-nonzero</code> con tracing de presentación habilitado</li>
+                </ul>
+                <p>
+                    <strong>Resultados clave</strong>:
+                </p>
+                <ul>
+                    <li>DMG Profile A: Clear en frame 0, sin writes no-cero después del clear</li>
+                    <li>DMG Profile B: Clear en frame 0, sin writes no-cero después del clear, pero con tilemap writes (1024 bytes)</li>
+                    <li>CGB: Clear en frame 174, first non-zero write en frame 174 (PC:0x12C1, Addr:0x8FFF, Val:0xBF)</li>
+                </ul>
+                <p>
+                    <strong>Validación de módulo compilado C++</strong>: Todos los cambios se compilaron correctamente con Cython y pasaron <code>test_build.py</code>.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: "VRAM", "LCDC Register (0xFF40)", "Power Up Sequence"</li>
+                    <li>GBEDG: Post-Boot State</li>
+                    <li>Plan Step 0492: <code>step_0492_-_detectar_clear_vram_y_carga_de_tiles_70afcfb7.plan.md</code></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Clear VRAM</strong>: Muchos juegos escriben ceros a toda la región de tiledata durante la inicialización. Este proceso es detectable contando los intentos de escritura hasta alcanzar 6144 bytes.</li>
+                        <li><strong>Post-Boot State</strong>: El estado inicial de los registros I/O puede afectar significativamente el comportamiento del juego. El A/B test muestra que cambiar LCDC de 0x00 a 0x91 no resuelve el problema de carga de tiles en DMG.</li>
+                        <li><strong>Pipeline de Renderizado CGB</strong>: El problema en CGB no está en la carga de datos (los tiles se cargan correctamente), sino en el pipeline de renderizado que no está generando contenido no-blanco en los framebuffers.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>DMG</strong>: Por qué el juego no progresa después del clear. Posibles causas: loops de espera, problemas con interrupciones, condiciones de carrera en timing de I/O.</li>
+                        <li><strong>CGB</strong>: Dónde exactamente se pierde la información en el pipeline de renderizado. Los dumps de framebuffer en frame 180 deberían ayudar a identificar el problema.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis DMG</strong>: El juego está esperando alguna condición que no se está cumpliendo (ej: interrupción VBlank, lectura de registro I/O específico, timing específico). Los PC hotspots después del clear deberían revelar qué código se está ejecutando.
+                    </p>
+                    <p>
+                        <strong>Hipótesis CGB</strong>: El problema está en la lógica de presentación (RGB -> Present) o en el manejo de paletas CGB. Los framebuffers RGB y Present están ambos en blanco, lo que sugiere que el problema está antes de la presentación.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Analizar PC hotspots después del clear en DMG para identificar qué código se está ejecutando</li>
+                    <li>[ ] Investigar loops de espera que puedan estar bloqueando el progreso del juego en DMG</li>
+                    <li>[ ] Analizar dumps de framebuffer en CGB (frame 180) para identificar dónde se pierde la información</li>
+                    <li>[ ] Revisar la lógica de presentación CGB (RGB -> Present) para identificar el problema</li>
+                    <li>[ ] Verificar el manejo de paletas CGB y su impacto en el renderizado</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

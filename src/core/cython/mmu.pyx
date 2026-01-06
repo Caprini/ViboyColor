@@ -1320,6 +1320,7 @@ cdef class PyMMU:
         """
         Step 0490: Obtiene estadísticas de writes a VRAM.
         Step 0491: Ampliada para separar attempts vs nonzero writes + bank + VBK.
+        Step 0492: Ampliada con tracking de Clear VRAM y writes después del clear.
         
         Devuelve métricas sobre intentos de escritura a VRAM y bloqueos por Mode 3.
         
@@ -1330,6 +1331,23 @@ cdef class PyMMU:
             return None
         
         cdef mmu.VRAMWriteStats stats = self._mmu.get_vram_write_stats()
+        
+        # Extraer ring buffer (últimos N eventos)
+        cdef uint32_t start = 0
+        cdef uint32_t ring_size = 128  # TILEDATA_WRITE_RING_SIZE
+        cdef uint32_t i, idx
+        ring_events = []
+        if stats.tiledata_write_ring_active_:
+            if stats.tiledata_write_ring_head_ > ring_size:
+                start = stats.tiledata_write_ring_head_ - ring_size
+            for i in range(start, stats.tiledata_write_ring_head_):
+                idx = i % ring_size
+                ring_events.append({
+                    'frame': stats.tiledata_write_ring_[idx].frame,
+                    'pc': stats.tiledata_write_ring_[idx].pc,
+                    'addr': stats.tiledata_write_ring_[idx].addr,
+                    'val': stats.tiledata_write_ring_[idx].val,
+                })
         
         return {
             'tiledata_attempts_bank0': stats.tiledata_attempts_bank0,
@@ -1355,6 +1373,15 @@ cdef class PyMMU:
             'vram_write_blocked_mode3_tilemap': stats.vram_write_blocked_mode3_tilemap,
             'last_blocked_vram_write_pc': stats.last_blocked_vram_write_pc,
             'last_blocked_vram_write_addr': stats.last_blocked_vram_write_addr,
+            # Step 0492: Clear VRAM tracking
+            'tiledata_clear_done_frame': stats.tiledata_clear_done_frame,
+            'tiledata_attempts_after_clear': stats.tiledata_attempts_after_clear,
+            'tiledata_nonzero_after_clear': stats.tiledata_nonzero_after_clear,
+            'tiledata_first_nonzero_frame': stats.tiledata_first_nonzero_frame,
+            'tiledata_first_nonzero_pc': stats.tiledata_first_nonzero_pc,
+            'tiledata_first_nonzero_addr': stats.tiledata_first_nonzero_addr,
+            'tiledata_first_nonzero_val': stats.tiledata_first_nonzero_val,
+            'tiledata_write_ring': ring_events,  # Últimos N eventos
         }
     
     def get_last_lcdc_write_pc(self):

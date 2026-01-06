@@ -60,6 +60,7 @@ struct CGBPaletteWriteStats {
 /**
  * Step 0490: Estructura para estadísticas de writes a VRAM.
  * Step 0491: Ampliada para separar attempts vs nonzero writes + bank + VBK.
+ * Step 0492: Ampliada con tracking de Clear VRAM y writes después del clear.
  * 
  * Permite rastrear si el juego está escribiendo a VRAM y si está bloqueado por Mode 3.
  */
@@ -95,6 +96,27 @@ struct VRAMWriteStats {
     uint32_t vram_write_blocked_mode3_tilemap;
     uint16_t last_blocked_vram_write_pc;
     uint16_t last_blocked_vram_write_addr;
+    
+    // --- Step 0492: Clear VRAM tracking ---
+    uint32_t tiledata_clear_done_frame;      // Cuando TiledataAttemptsB0 llega a 6144 por primera vez
+    uint32_t tiledata_attempts_after_clear;  // Intentos después del clear
+    uint32_t tiledata_nonzero_after_clear;    // Writes no-cero después del clear
+    uint32_t tiledata_first_nonzero_frame;    // Frame del primer write no-cero después del clear
+    uint16_t tiledata_first_nonzero_pc;       // PC del primer write no-cero
+    uint16_t tiledata_first_nonzero_addr;     // Addr del primer write no-cero
+    uint8_t tiledata_first_nonzero_val;       // Valor del primer write no-cero
+    
+    // Ring buffer de writes a tiledata (solo después del clear)
+    struct TiledataWriteEvent {
+        uint32_t frame;
+        uint16_t pc;
+        uint16_t addr;
+        uint8_t val;
+    };
+    static constexpr size_t TILEDATA_WRITE_RING_SIZE = 128;
+    TiledataWriteEvent tiledata_write_ring_[TILEDATA_WRITE_RING_SIZE];
+    uint32_t tiledata_write_ring_head_;  // Índice del siguiente slot a escribir
+    bool tiledata_write_ring_active_;  // Solo activo después del clear
 };
 
 /**
@@ -471,6 +493,16 @@ public:
      * Fuente: Pan Docs - Power Up Sequence
      */
     void init_post_boot_dmg_state();
+    
+    /**
+     * Step 0492: Inicializa estado post-boot DMG Perfil B (alternativo)
+     * 
+     * Perfil B: LCDC operativo (0x91) en lugar de OFF (0x00).
+     * Permite A/B testing para determinar qué perfil desbloquea la carga de tiles.
+     * 
+     * Fuente: Pan Docs - Power Up Sequence
+     */
+    void init_post_boot_dmg_state_profile_b();
     
     /**
      * Step 0419: Habilita/deshabilita escrituras directas en ROM para unit testing.

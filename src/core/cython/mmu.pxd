@@ -58,6 +58,13 @@ cdef extern from "MMU.hpp":
     
     # Step 0490: Estructura VRAMWriteStats (definida fuera de la clase MMU)
     # Step 0491: Ampliada para separar attempts vs nonzero writes + bank + VBK
+    # Step 0492: Ampliada con tracking de Clear VRAM
+    cdef struct TiledataWriteEvent:
+        uint32_t frame
+        uint16_t pc
+        uint16_t addr
+        uint8_t val
+    
     cdef struct VRAMWriteStats:
         # Tiledata (0x8000-0x97FF)
         uint32_t tiledata_attempts_bank0
@@ -86,6 +93,17 @@ cdef extern from "MMU.hpp":
         uint32_t vram_write_blocked_mode3_tilemap
         uint16_t last_blocked_vram_write_pc
         uint16_t last_blocked_vram_write_addr
+        # Step 0492: Clear VRAM tracking
+        uint32_t tiledata_clear_done_frame
+        uint32_t tiledata_attempts_after_clear
+        uint32_t tiledata_nonzero_after_clear
+        uint32_t tiledata_first_nonzero_frame
+        uint16_t tiledata_first_nonzero_pc
+        uint16_t tiledata_first_nonzero_addr
+        uint8_t tiledata_first_nonzero_val
+        TiledataWriteEvent tiledata_write_ring_[128]  # TILEDATA_WRITE_RING_SIZE = 128 (con guion bajo para coincidir con C++)
+        uint32_t tiledata_write_ring_head_  # Con guion bajo para coincidir con C++
+        bint tiledata_write_ring_active_  # Con guion bajo para coincidir con C++
     
     cdef cppclass MMU:
         MMU() except +

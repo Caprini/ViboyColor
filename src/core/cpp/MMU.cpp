@@ -3209,6 +3209,54 @@ void MMU::write(uint16_t addr, uint8_t value) {
                 vram_write_stats_.last_blocked_vram_write_pc = debug_current_pc;
                 vram_write_stats_.last_blocked_vram_write_addr = addr;
             }
+            
+            // --- Step 0492: Tracking de Clear VRAM ---
+            if (is_tiledata && vbk == 0) {
+                // Detectar clear VRAM: cuando attempts llega a 6144 por primera vez
+                if (vram_write_stats_.tiledata_attempts_bank0 == 6144 && 
+                    vram_write_stats_.tiledata_clear_done_frame == 0) {
+                    uint32_t current_frame = (ppu_ != nullptr) ? ppu_->get_frame_counter() : 0;
+                    vram_write_stats_.tiledata_clear_done_frame = current_frame;
+                    vram_write_stats_.tiledata_write_ring_active_ = true;
+                    vram_write_stats_.tiledata_write_ring_head_ = 0;
+                    
+                    printf("[VRAM-CLEAR] Clear VRAM tiledata completado en frame %u\n", 
+                           current_frame);
+                }
+                
+                // Si el clear ya se completó, trackear writes después del clear
+                if (vram_write_stats_.tiledata_clear_done_frame > 0) {
+                    vram_write_stats_.tiledata_attempts_after_clear++;
+                    
+                    if (value != 0x00) {
+                        vram_write_stats_.tiledata_nonzero_after_clear++;
+                        
+                        // Guardar primer write no-cero
+                        if (vram_write_stats_.tiledata_first_nonzero_frame == 0) {
+                            uint32_t current_frame = (ppu_ != nullptr) ? ppu_->get_frame_counter() : 0;
+                            vram_write_stats_.tiledata_first_nonzero_frame = current_frame;
+                            vram_write_stats_.tiledata_first_nonzero_pc = debug_current_pc;
+                            vram_write_stats_.tiledata_first_nonzero_addr = addr;
+                            vram_write_stats_.tiledata_first_nonzero_val = value;
+                            
+                            printf("[VRAM-FIRST-NONZERO] Frame %u | PC:0x%04X | Addr:0x%04X | Val:0x%02X\n",
+                                   current_frame, debug_current_pc, addr, value);
+                        }
+                        
+                        // Añadir al ring buffer (solo si está activo)
+                        if (vram_write_stats_.tiledata_write_ring_active_) {
+                            uint32_t current_frame = (ppu_ != nullptr) ? ppu_->get_frame_counter() : 0;
+                            uint32_t idx = vram_write_stats_.tiledata_write_ring_head_ % VRAMWriteStats::TILEDATA_WRITE_RING_SIZE;
+                            vram_write_stats_.tiledata_write_ring_[idx].frame = current_frame;
+                            vram_write_stats_.tiledata_write_ring_[idx].pc = debug_current_pc;
+                            vram_write_stats_.tiledata_write_ring_[idx].addr = addr;
+                            vram_write_stats_.tiledata_write_ring_[idx].val = value;
+                            vram_write_stats_.tiledata_write_ring_head_++;
+                        }
+                    }
+                }
+            }
+            // -----------------------------------------
         }
         // -----------------------------------------
         
@@ -4368,12 +4416,18 @@ void MMU::initialize_io_registers() {
     bool is_cgb = (hardware_mode_ == HardwareMode::CGB);
     
     // Step 0491: Si es DMG y VIBOY_SIM_BOOT_LOGO=0, usar estado post-boot correcto
+    // Step 0492: Permitir selección entre Perfil A y Perfil B
     const char* env_boot_logo = std::getenv("VIBOY_SIM_BOOT_LOGO");
     bool sim_boot_logo = (env_boot_logo && std::string(env_boot_logo) == "1");
     
     if (!is_cgb && !sim_boot_logo) {
         // Modo DMG sin boot logo: usar estado post-boot según Pan Docs
-        init_post_boot_dmg_state();
+        const char* env_profile = std::getenv("VIBOY_POST_BOOT_DMG_PROFILE");
+        if (env_profile && std::string(env_profile) == "B") {
+            init_post_boot_dmg_state_profile_b();  // Perfil B
+        } else {
+            init_post_boot_dmg_state();  // Perfil A (default)
+        }
         return;
     }
     
@@ -4546,6 +4600,50 @@ void MMU::init_post_boot_dmg_state() {
            memory_[0xFF40], memory_[0xFF41], memory_[0xFF47], memory_[0xFF0F], memory_[0xFFFF]);
 }
 // --- Fin Step 0491 ---
+
+// --- Step 0492: Perfil B de post-boot DMG ---
+void MMU::init_post_boot_dmg_state_profile_b() {
+    // Perfil B: LCDC en el valor típico de "LCD ya operativo"
+    // (y el set mínimo coherente)
+    
+    // LCDC: LCD ON, BG Display ON, tile data 0x8000, tilemap 0x9800
+    memory_[0xFF40] = 0x91;
+    
+    // STAT: 0x00 por defecto
+    memory_[0xFF41] = 0x00;
+    
+    // SCY, SCX: 0x00 por defecto
+    memory_[0xFF42] = 0x00;  // SCY
+    memory_[0xFF43] = 0x00;  // SCX
+    
+    // BGP: 0xFC por defecto (shades 3,2,1,0)
+    memory_[0xFF47] = 0xFC;
+    
+    // OBP0, OBP1: 0x00 por defecto
+    memory_[0xFF48] = 0x00;  // OBP0
+    memory_[0xFF49] = 0x00;  // OBP1
+    
+    // IF: 0xE1 por defecto (VBlank, Timer, Serial flags set)
+    memory_[0xFF0F] = 0xE1;
+    
+    // IE: 0x00 por defecto
+    memory_[0xFFFF] = 0x00;
+    
+    // LYC: 0x00 por defecto
+    memory_[0xFF45] = 0x00;
+    
+    // DMA: 0xFF (inactivo)
+    memory_[0xFF46] = 0xFF;
+    
+    // WY, WX: 0x00 por defecto
+    memory_[0xFF4A] = 0x00;  // WY
+    memory_[0xFF4B] = 0x00;  // WX
+    
+    printf("[MMU-POST-BOOT-DMG-PROFILE-B] Estado post-boot DMG Perfil B inicializado:\n");
+    printf("  LCDC=0x%02X (ON) | STAT=0x%02X | BGP=0x%02X | IF=0x%02X | IE=0x%02X\n",
+           memory_[0xFF40], memory_[0xFF41], memory_[0xFF47], memory_[0xFF0F], memory_[0xFFFF]);
+}
+// --- Fin Step 0492 ---
 
 // --- Step 0402: Modo stub de Boot ROM ---
 void MMU::enable_bootrom_stub(bool enable, bool cgb_mode) {

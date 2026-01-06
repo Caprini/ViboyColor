@@ -736,7 +736,7 @@ class ROMSmokeRunner:
     
     def __init__(self, rom_path: str, max_frames: int = 300, 
                  dump_every: int = 0, dump_png: bool = False,
-                 max_seconds: int = 120):
+                 max_seconds: int = 120, stop_early_on_first_nonzero: bool = False):
         """
         Inicializa el runner.
         
@@ -746,12 +746,14 @@ class ROMSmokeRunner:
             dump_every: Cada cuántos frames dumpear métricas detalladas (0 = solo final)
             dump_png: Si True, genera PNGs de framebuffers seleccionados
             max_seconds: Timeout máximo de ejecución (segundos)
+            stop_early_on_first_nonzero: Si True, parar cuando tiledata_first_nonzero_frame exista
         """
         self.rom_path = Path(rom_path)
         self.max_frames = max_frames
         self.dump_every = dump_every
         self.dump_png = dump_png
         self.max_seconds = max_seconds
+        self.stop_early_on_first_nonzero = stop_early_on_first_nonzero
         
         # Validar ROM
         if not self.rom_path.exists():
@@ -1475,6 +1477,21 @@ class ROMSmokeRunner:
             metrics = self._collect_metrics(frame_idx, ly_first, ly_mid, ly_last, stat_first, stat_mid, stat_last)
             self.metrics.append(metrics)
             
+            # --- Step 0492: Stop early si tiledata_first_nonzero_frame existe ---
+            if self.stop_early_on_first_nonzero:
+                vram_write_stats = self.mmu.get_vram_write_stats()
+                if vram_write_stats and vram_write_stats.get('tiledata_first_nonzero_frame', 0) > 0:
+                    print(f"[ROM-SMOKE] Stop early: tiledata_first_nonzero_frame={vram_write_stats['tiledata_first_nonzero_frame']}")
+                    break
+            
+            # Stop early si frame == N y aún es cero
+            if frame_idx == 3000:  # O el umbral que quieras
+                vram_write_stats = self.mmu.get_vram_write_stats()
+                if vram_write_stats and vram_write_stats.get('tiledata_nonzero_after_clear', 0) == 0:
+                    print(f"[ROM-SMOKE] Stop early: frame={frame_idx}, tiledata_nonzero_after_clear=0")
+                    break
+            # -----------------------------------------
+            
             # Step 0488: Dump framebuffer a PPM si está activo
             self._dump_framebuffer_to_ppm(frame_idx)
             
@@ -1978,7 +1995,14 @@ class ROMSmokeRunner:
                                 f"TiledataBlocked={vram_write_stats.get('vram_write_blocked_mode3_tiledata', 0)} "
                                 f"TilemapBlocked={vram_write_stats.get('vram_write_blocked_mode3_tilemap', 0)} "
                                 f"LastBlockedPC=0x{vram_write_stats.get('last_blocked_vram_write_pc', 0):04X} "
-                                f"LastBlockedAddr=0x{vram_write_stats.get('last_blocked_vram_write_addr', 0):04X}")
+                                f"LastBlockedAddr=0x{vram_write_stats.get('last_blocked_vram_write_addr', 0):04X} | "
+                                f"ClearDoneFrame={vram_write_stats.get('tiledata_clear_done_frame', 0)} "
+                                f"AttemptsAfterClear={vram_write_stats.get('tiledata_attempts_after_clear', 0)} "
+                                f"NonZeroAfterClear={vram_write_stats.get('tiledata_nonzero_after_clear', 0)} "
+                                f"FirstNonZeroFrame={vram_write_stats.get('tiledata_first_nonzero_frame', 0)} "
+                                f"FirstNonZeroPC=0x{vram_write_stats.get('tiledata_first_nonzero_pc', 0):04X} "
+                                f"FirstNonZeroAddr=0x{vram_write_stats.get('tiledata_first_nonzero_addr', 0):04X} "
+                                f"FirstNonZeroVal=0x{vram_write_stats.get('tiledata_first_nonzero_val', 0):02X}")
                     except (AttributeError, TypeError, KeyError) as e:
                         vram_write_stats_str = f"ERROR: {e}"
                 
@@ -2097,6 +2121,24 @@ class ROMSmokeRunner:
                       f"DMGTileFetchStats={dmg_tile_stats_str} | "
                       f"VRAM_Regions_TiledataNZ={vram_tiledata_nonzero} VRAM_Regions_TilemapNZ={vram_tilemap_nonzero} | "
                       f"VRAMWriteStats={vram_write_stats_str}")
+                
+                # --- Step 0492: AfterClear section ---
+                if vram_write_stats and vram_write_stats.get('tiledata_clear_done_frame', 0) > 0:
+                    clear_frame = vram_write_stats['tiledata_clear_done_frame']
+                    current_frame = frame_idx
+                    
+                    # Solo capturar si estamos después del clear
+                    if current_frame >= clear_frame:
+                        frames_since_clear = current_frame - clear_frame
+                        # PC hotspots top 3 (ya calculados arriba)
+                        pc_hotspots_after_clear = pc_hotspots_str
+                        # IO reads top 3 (ya calculados arriba)
+                        io_reads_after_clear = io_reads_str
+                        
+                        print(f"[SMOKE-AFTERCLEAR] Frame={frame_idx} | FramesSinceClear={frames_since_clear} | "
+                              f"PCHotspotsTop3={pc_hotspots_after_clear} | "
+                              f"IOReadsTop3={io_reads_after_clear}")
+                # -----------------------------------------
                 
                 # Step 0485: Imprimir tail de JOYP trace si está activo (últimos 16 eventos compactados)
                 if debug_joyp_trace and joyp_trace_tail:
@@ -2555,6 +2597,8 @@ def main():
                         help="Generar PNGs de framebuffers seleccionados")
     parser.add_argument("--max-seconds", type=int, default=120,
                         help="Timeout máximo de ejecución en segundos (default: 120)")
+    parser.add_argument("--stop-early-on-first-nonzero", action="store_true",
+                        help="Parar cuando tiledata_first_nonzero_frame exista (Step 0492)")
     
     args = parser.parse_args()
     
@@ -2564,7 +2608,8 @@ def main():
             max_frames=args.frames,
             dump_every=args.dump_every,
             dump_png=args.dump_png,
-            max_seconds=args.max_seconds
+            max_seconds=args.max_seconds,
+            stop_early_on_first_nonzero=args.stop_early_on_first_nonzero
         )
         runner.run()
     except Exception as e:
