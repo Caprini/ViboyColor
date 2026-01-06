@@ -58,6 +58,20 @@ struct CGBPaletteWriteStats {
 };
 
 /**
+ * Step 0490: Estructura para estadísticas de writes a VRAM.
+ * 
+ * Permite rastrear si el juego está escribiendo a VRAM y si está bloqueado por Mode 3.
+ */
+struct VRAMWriteStats {
+    uint32_t vram_write_attempts_tiledata;      // Intentos de write a 0x8000-0x97FF
+    uint32_t vram_write_attempts_tilemap;        // Intentos de write a 0x9800-0x9FFF
+    uint32_t vram_write_blocked_mode3_tiledata;  // Bloqueados por Mode 3 (tiledata)
+    uint32_t vram_write_blocked_mode3_tilemap;   // Bloqueados por Mode 3 (tilemap)
+    uint16_t last_blocked_vram_write_pc;         // PC del último write bloqueado
+    uint16_t last_blocked_vram_write_addr;       // Addr del último write bloqueado
+};
+
+/**
  * Step 0487: Helper function para obtener etiqueta de selección JOYP
  * 
  * @param select_bits Bits 4-5 del valor escrito/leído (0x00, 0x10, 0x20, 0x30)
@@ -1016,6 +1030,9 @@ private:
     // --- Step 0489: Instrumentación de writes a paletas CGB ---
     CGBPaletteWriteStats cgb_palette_write_stats_;
     
+    // --- Step 0490: Instrumentación de writes a VRAM ---
+    VRAMWriteStats vram_write_stats_;
+    
     // --- Step 0486: Contadores JOYP por source y selección ---
     mutable uint32_t joyp_reads_prog_buttons_sel_;   // Program reads con buttons selected (bit4=0)
     mutable uint32_t joyp_reads_prog_dpad_sel_;      // Program reads con dpad selected (bit5=0)
@@ -1842,6 +1859,15 @@ public:
      * @return Referencia constante a CGBPaletteWriteStats con las estadísticas
      */
     const CGBPaletteWriteStats& get_cgb_palette_write_stats() const;
+    
+    /**
+     * Step 0490: Obtiene estadísticas de writes a VRAM.
+     * 
+     * Devuelve métricas sobre intentos de escritura a VRAM y bloqueos por Mode 3.
+     * 
+     * @return Referencia constante a VRAMWriteStats con las estadísticas
+     */
+    const VRAMWriteStats& get_vram_write_stats() const;
 };
 
 #endif // MMU_HPP

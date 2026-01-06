@@ -3296,6 +3296,19 @@ void PPU::render_scanline() {
             uint8_t byte1 = mmu_->read_vram_bank(tile_bank, tile_line_offset);
             uint8_t byte2 = mmu_->read_vram_bank(tile_bank, tile_line_offset + 1);
             
+            // Step 0490: Tracking de fetch de tiles DMG (gateado por VIBOY_DEBUG_DMG_TILE_FETCH)
+            // Incrementar contador solo una vez por línea de tile (cada 8 píxeles)
+            const char* env_debug = std::getenv("VIBOY_DEBUG_DMG_TILE_FETCH");
+            if (env_debug && std::string(env_debug) == "1") {
+                if (x % 8 == 0) {  // Solo una vez por línea de tile
+                    dmg_tile_fetch_stats_.tile_bytes_read_total_count++;
+                    
+                    if (byte1 != 0x00 || byte2 != 0x00) {
+                        dmg_tile_fetch_stats_.tile_bytes_read_nonzero_count++;
+                    }
+                }
+            }
+            
             // --- Step 0329: Mejora de Detección de Tiles Vacíos y Checkerboard Temporal ---
             // Verificar TODO el tile (16 bytes) antes de considerarlo vacío
             // Algunos tiles legítimos pueden tener líneas con 0x0000
@@ -5849,43 +5862,44 @@ void PPU::compute_three_buffer_stats() {
     three_buffer_stats_.present_w = 0;
     three_buffer_stats_.present_h = 0;
     
-    // A1) FB_INDEX (lo que ya medimos: 160x144 de índices 0..3)
+    // A1) FB_INDEX (CRC32 completo sobre todo el buffer)
     const uint8_t* fb_idx = get_presented_framebuffer_indices_ptr();
-    uint32_t idx_hash = 0;
+    uint32_t idx_crc32_full = 0;
     uint32_t idx_unique_bits = 0;
     uint32_t idx_nonzero = 0;
     
+    // CRC32 completo (usar hash simple multiplicativo)
     for (int i = 0; i < FRAMEBUFFER_SIZE; i++) {
         uint8_t idx = fb_idx[i] & 0x03;
-        idx_hash = (idx_hash * 31) + idx;
+        idx_crc32_full = (idx_crc32_full * 31) + idx;  // Hash simple por ahora
         idx_unique_bits |= (1 << idx);
         if (idx != 0) {
             idx_nonzero++;
         }
     }
     
-    three_buffer_stats_.idx_crc32 = idx_hash;
-    three_buffer_stats_.idx_unique = __builtin_popcount(idx_unique_bits);  // Contar bits set
+    three_buffer_stats_.idx_crc32 = idx_crc32_full;
+    three_buffer_stats_.idx_unique = __builtin_popcount(idx_unique_bits);
     three_buffer_stats_.idx_nonzero = idx_nonzero;
     
-    // A2) FB_RGB (después de mapear paletas)
-    // Leer framebuffer RGB (si existe en modo CGB)
+    // A2) FB_RGB (CRC32 completo sobre todo el buffer RGB)
+    // Leer framebuffer RGB (si existe en modo CGB) o convertir desde índices (modo DMG)
     const uint8_t* fb_rgb = get_framebuffer_rgb_ptr();
+    
     if (fb_rgb != nullptr) {
-        uint32_t rgb_hash = 0;
-        uint32_t rgb_unique_approx = 0;
+        // Modo CGB: usar RGB directamente
+        uint32_t rgb_crc32_full = 0;
         uint32_t rgb_nonwhite = 0;
+        std::set<uint32_t> rgb_unique_set;
         
-        // Muestrear cada 10 píxeles para unique_approx (rápido)
-        std::set<uint32_t> rgb_samples;
-        for (int i = 0; i < FRAMEBUFFER_SIZE; i += 10) {
+        for (int i = 0; i < FRAMEBUFFER_SIZE; i++) {
             uint8_t r = fb_rgb[i * 3 + 0];
             uint8_t g = fb_rgb[i * 3 + 1];
             uint8_t b = fb_rgb[i * 3 + 2];
             uint32_t rgb_val = (r << 16) | (g << 8) | b;
             
-            rgb_hash = (rgb_hash * 31) + rgb_val;
-            rgb_samples.insert(rgb_val);
+            rgb_crc32_full = (rgb_crc32_full * 31) + rgb_val;
+            rgb_unique_set.insert(rgb_val);
             
             // Contar no-blancos (tolerancia: RGB > 240,240,240 = blanco)
             if (r < 240 || g < 240 || b < 240) {
@@ -5893,8 +5907,8 @@ void PPU::compute_three_buffer_stats() {
             }
         }
         
-        three_buffer_stats_.rgb_crc32 = rgb_hash;
-        three_buffer_stats_.rgb_unique_colors_approx = rgb_samples.size();
+        three_buffer_stats_.rgb_crc32 = rgb_crc32_full;
+        three_buffer_stats_.rgb_unique_colors_approx = rgb_unique_set.size();
         three_buffer_stats_.rgb_nonwhite_count = rgb_nonwhite;
     } else {
         // Modo DMG: convertir índices a RGB usando BGP
@@ -5905,7 +5919,6 @@ void PPU::compute_three_buffer_stats() {
         shades[2] = (bgp >> 4) & 0x03;
         shades[3] = (bgp >> 6) & 0x03;
         
-        // Mapeo shade → RGB (0-3 → valores RGB)
         uint8_t shade_to_rgb[4][3] = {
             {255, 255, 255},  // Shade 0 = blanco
             {192, 192, 192},  // Shade 1 = gris claro
@@ -5913,11 +5926,11 @@ void PPU::compute_three_buffer_stats() {
             {0, 0, 0},        // Shade 3 = negro
         };
         
-        uint32_t rgb_hash = 0;
-        std::set<uint32_t> rgb_samples;
+        uint32_t rgb_crc32_full = 0;
         uint32_t rgb_nonwhite = 0;
+        std::set<uint32_t> rgb_unique_set;
         
-        for (int i = 0; i < FRAMEBUFFER_SIZE; i += 10) {  // Muestrear
+        for (int i = 0; i < FRAMEBUFFER_SIZE; i++) {
             uint8_t idx = fb_idx[i] & 0x03;
             uint8_t shade = shades[idx];
             uint8_t r = shade_to_rgb[shade][0];
@@ -5925,16 +5938,16 @@ void PPU::compute_three_buffer_stats() {
             uint8_t b = shade_to_rgb[shade][2];
             uint32_t rgb_val = (r << 16) | (g << 8) | b;
             
-            rgb_hash = (rgb_hash * 31) + rgb_val;
-            rgb_samples.insert(rgb_val);
+            rgb_crc32_full = (rgb_crc32_full * 31) + rgb_val;
+            rgb_unique_set.insert(rgb_val);
             
             if (r < 240 || g < 240 || b < 240) {
                 rgb_nonwhite++;
             }
         }
         
-        three_buffer_stats_.rgb_crc32 = rgb_hash;
-        three_buffer_stats_.rgb_unique_colors_approx = rgb_samples.size();
+        three_buffer_stats_.rgb_crc32 = rgb_crc32_full;
+        three_buffer_stats_.rgb_unique_colors_approx = rgb_unique_set.size();
         three_buffer_stats_.rgb_nonwhite_count = rgb_nonwhite;
     }
     

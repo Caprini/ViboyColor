@@ -1934,6 +1934,38 @@ class ROMSmokeRunner:
                     except (AttributeError, TypeError, KeyError) as e:
                         dmg_tile_stats_str = f"ERROR: {e}"
                 
+                # Step 0490: VRAM por regiones (tiledata vs tilemap)
+                vram_tiledata_nonzero = 0
+                vram_tilemap_nonzero = 0
+                try:
+                    # Contar bytes non-zero en tiledata (0x8000-0x97FF = 6144 bytes)
+                    for addr in range(0x8000, 0x9800):
+                        if self.mmu.read_raw(addr) != 0:
+                            vram_tiledata_nonzero += 1
+                    
+                    # Contar bytes non-zero en tilemap (0x9800-0x9FFF = 2048 bytes)
+                    for addr in range(0x9800, 0xA000):
+                        if self.mmu.read_raw(addr) != 0:
+                            vram_tilemap_nonzero += 1
+                except Exception as e:
+                    pass
+                
+                # Step 0490: VRAMWriteStats (gateado por VIBOY_DEBUG_VRAM_WRITES=1)
+                vram_write_stats = None
+                vram_write_stats_str = "N/A"
+                if os.getenv("VIBOY_DEBUG_VRAM_WRITES") == "1":
+                    try:
+                        vram_write_stats = self.mmu.get_vram_write_stats()
+                        if vram_write_stats:
+                            vram_write_stats_str = (f"TiledataAttempts={vram_write_stats['vram_write_attempts_tiledata']} "
+                                                    f"TiledataBlocked={vram_write_stats['vram_write_blocked_mode3_tiledata']} "
+                                                    f"TilemapAttempts={vram_write_stats['vram_write_attempts_tilemap']} "
+                                                    f"TilemapBlocked={vram_write_stats['vram_write_blocked_mode3_tilemap']} "
+                                                    f"LastBlockedPC=0x{vram_write_stats['last_blocked_vram_write_pc']:04X} "
+                                                    f"LastBlockedAddr=0x{vram_write_stats['last_blocked_vram_write_addr']:04X}")
+                    except (AttributeError, TypeError, KeyError) as e:
+                        vram_write_stats_str = f"ERROR: {e}"
+                
                 # Step 0488: PaletteStats
                 palette_stats = {}
                 try:
@@ -2046,7 +2078,9 @@ class ROMSmokeRunner:
                       f"PaletteStats={palette_stats_str} | "
                       f"ThreeBufferStats={three_buf_stats_str} | "
                       f"CGBPaletteWriteStats={cgb_pal_stats_str} | "
-                      f"DMGTileFetchStats={dmg_tile_stats_str}")
+                      f"DMGTileFetchStats={dmg_tile_stats_str} | "
+                      f"VRAM_Regions_TiledataNZ={vram_tiledata_nonzero} VRAM_Regions_TilemapNZ={vram_tilemap_nonzero} | "
+                      f"VRAMWriteStats={vram_write_stats_str}")
                 
                 # Step 0485: Imprimir tail de JOYP trace si está activo (últimos 16 eventos compactados)
                 if debug_joyp_trace and joyp_trace_tail:

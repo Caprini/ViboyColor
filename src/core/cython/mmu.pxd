@@ -45,6 +45,26 @@ cdef extern from "MMU.hpp":
         DMG
         CGB
     
+    # Step 0489: Estructura CGBPaletteWriteStats (definida fuera de la clase MMU)
+    cdef struct CGBPaletteWriteStats:
+        uint32_t bgpd_write_count
+        uint16_t last_bgpd_write_pc
+        uint8_t last_bgpd_value
+        uint8_t last_bgpi
+        uint32_t obpd_write_count
+        uint16_t last_obpd_write_pc
+        uint8_t last_obpd_value
+        uint8_t last_obpi
+    
+    # Step 0490: Estructura VRAMWriteStats (definida fuera de la clase MMU)
+    cdef struct VRAMWriteStats:
+        uint32_t vram_write_attempts_tiledata
+        uint32_t vram_write_attempts_tilemap
+        uint32_t vram_write_blocked_mode3_tiledata
+        uint32_t vram_write_blocked_mode3_tilemap
+        uint16_t last_blocked_vram_write_pc
+        uint16_t last_blocked_vram_write_addr
+    
     cdef cppclass MMU:
         MMU() except +
         uint8_t read(uint16_t addr)
@@ -174,16 +194,7 @@ cdef extern from "MMU.hpp":
         uint32_t get_joyp_read_dpad_selected_total_cpu_poll() const
         uint32_t get_joyp_read_none_selected_total_cpu_poll() const
         # Step 0489: CGB Palette Write Stats
-        const CGBPaletteWriteStats& get_cgb_palette_write_stats() const
-    
-    # Step 0489: Estructura CGBPaletteWriteStats (definida fuera de la clase MMU)
-    cdef struct CGBPaletteWriteStats:
-        uint32_t bgpd_write_count
-        uint16_t last_bgpd_write_pc
-        uint8_t last_bgpd_value
-        uint8_t last_bgpi
-        uint32_t obpd_write_count
-        uint16_t last_obpd_write_pc
-        uint8_t last_obpd_value
-        uint8_t last_obpi
+        CGBPaletteWriteStats get_cgb_palette_write_stats() const
+        # Step 0490: VRAM Write Stats
+        VRAMWriteStats get_vram_write_stats() const
 

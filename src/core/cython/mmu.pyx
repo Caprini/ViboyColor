@@ -1316,6 +1316,32 @@ cdef class PyMMU:
             'last_obpi': stats.last_obpi,
         }
     
+    def get_vram_write_stats(self):
+        """
+        Step 0490: Obtiene estadísticas de writes a VRAM.
+        
+        Devuelve métricas sobre intentos de escritura a VRAM y bloqueos por Mode 3.
+        
+        Returns:
+            dict con estadísticas de writes a VRAM o None si no disponible.
+            Keys: 'vram_write_attempts_tiledata', 'vram_write_attempts_tilemap',
+                  'vram_write_blocked_mode3_tiledata', 'vram_write_blocked_mode3_tilemap',
+                  'last_blocked_vram_write_pc', 'last_blocked_vram_write_addr'
+        """
+        if self._mmu == NULL:
+            return None
+        
+        cdef mmu.VRAMWriteStats stats = self._mmu.get_vram_write_stats()
+        
+        return {
+            'vram_write_attempts_tiledata': stats.vram_write_attempts_tiledata,
+            'vram_write_attempts_tilemap': stats.vram_write_attempts_tilemap,
+            'vram_write_blocked_mode3_tiledata': stats.vram_write_blocked_mode3_tiledata,
+            'vram_write_blocked_mode3_tilemap': stats.vram_write_blocked_mode3_tilemap,
+            'last_blocked_vram_write_pc': stats.last_blocked_vram_write_pc,
+            'last_blocked_vram_write_addr': stats.last_blocked_vram_write_addr,
+        }
+    
     def get_last_lcdc_write_pc(self):
         """
         Step 0482: Obtiene el PC de la última escritura a LCDC.

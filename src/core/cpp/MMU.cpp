@@ -178,6 +178,7 @@ MMU::MMU()
     , boot_logo_prefill_enabled_(false)  // Step 0475: Prefill del logo deshabilitado por defecto
     , waits_on_addr_(0x0000)  // Step 0479: I/O esperado (0 = no configurado)
     , cgb_palette_write_stats_()  // Step 0489: Inicializar estadísticas de writes a paletas CGB
+    , vram_write_stats_()  // Step 0490: Inicializar estadísticas de writes a VRAM
     , waits_on_reads_program_(0)  // Step 0479: Contador de reads desde programa
     , last_waits_on_read_value_(0x00)  // Step 0479: Último valor leído del I/O esperado
     , last_waits_on_read_pc_(0x0000)  // Step 0479: Último PC que leyó el I/O esperado
@@ -3121,6 +3122,40 @@ void MMU::write(uint16_t addr, uint8_t value) {
         }
         // -----------------------------------------
         
+        // --- Step 0490: Instrumentación de writes a VRAM (gateado por VIBOY_DEBUG_VRAM_WRITES) ---
+        const char* env_debug_vram = std::getenv("VIBOY_DEBUG_VRAM_WRITES");
+        if (env_debug_vram && std::string(env_debug_vram) == "1") {
+            // Contar attempts
+            if (addr >= 0x8000 && addr <= 0x97FF) {
+                vram_write_stats_.vram_write_attempts_tiledata++;
+            } else if (addr >= 0x9800 && addr <= 0x9FFF) {
+                vram_write_stats_.vram_write_attempts_tilemap++;
+            }
+            
+            // Verificar si está bloqueado por Mode 3
+            // Mode 3 bloquea VRAM cuando PPU está en modo Pixel Transfer (80-251 ciclos por línea)
+            bool is_blocked_by_mode3 = false;
+            if (ppu_ != nullptr) {
+                uint8_t ppu_mode = ppu_->get_mode();
+                uint8_t ly = ppu_->get_ly();
+                // Mode 3 bloquea VRAM durante líneas visibles (0-143)
+                if (ppu_mode == 3 && ly < 144) {
+                    is_blocked_by_mode3 = true;
+                }
+            }
+            
+            if (is_blocked_by_mode3) {
+                if (addr >= 0x8000 && addr <= 0x97FF) {
+                    vram_write_stats_.vram_write_blocked_mode3_tiledata++;
+                } else if (addr >= 0x9800 && addr <= 0x9FFF) {
+                    vram_write_stats_.vram_write_blocked_mode3_tilemap++;
+                }
+                vram_write_stats_.last_blocked_vram_write_pc = debug_current_pc;
+                vram_write_stats_.last_blocked_vram_write_addr = addr;
+            }
+        }
+        // -----------------------------------------
+        
         uint16_t offset = addr - 0x8000;
         if (vram_bank_ == 0) {
             vram_bank0_[offset] = value;
@@ -4892,6 +4927,12 @@ const CGBPaletteWriteStats& MMU::get_cgb_palette_write_stats() const {
     return cgb_palette_write_stats_;
 }
 // --- Fin Step 0489 ---
+
+// --- Step 0490: Getter para estadísticas de writes a VRAM ---
+const VRAMWriteStats& MMU::get_vram_write_stats() const {
+    return vram_write_stats_;
+}
+// --- Fin Step 0490 ---
 // --- Fin Step 0487 (JOYP contadores por tipo de selección) ---
 // --- Fin Step 0485 (JOYP Trace) ---
 // --- Fin Step 0484 ---

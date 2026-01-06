@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0490 - Saneamiento de Evidencia + Fix Mínimo DMG -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-29__0490__saneamiento-de-evidencia-fix-minimo-dmg.html" class="entry-link">
+                                    Saneamiento de Evidencia + Fix Mínimo DMG
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-29 | 
+                            <strong>Step ID:</strong> 0490 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Saneamiento completo de métricas de diagnóstico y fix mínimo para el problema de pantalla en blanco en modo DMG. Mejoras en CRC32 (cálculo completo), captura de FB_PRESENT_SRC, contadores de writes a VRAM, y corrección de instrumentación de DMGTileFetchStats. Hallazgo: PPU no leía tile data porque la instrumentación estaba en una función no llamada. Fix: mover instrumentación al lugar correcto en render_scanline(). Reporte completo en docs/reports/reporte_step0490.md.
+                        </p>
+                    </li>
                     <!-- Entrada 0489 - Cerrar Ambigüedad PPU vs Paletas vs Presentación -->
                     <li>
                         <div class="entry-header">
