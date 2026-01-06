@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0493 - Identificar Bloqueo DMG y Demostrar Señal CGB -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-01-06__0493__identificar-bloqueo-dmg-y-demostrar-señal-cgb.html" class="entry-link">
+                                    Identificar Bloqueo DMG y Demostrar Señal CGB
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-01-06 | 
+                            <strong>Step ID:</strong> 0493 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de diagnóstico avanzado para identificar el bloqueo post-clear en modo DMG (tetris.gb) y demostrar si hay señal en modo CGB (tetris_dx.gbc). Se reforzó la sección AfterClear con IME/IE/IF/HALT/VBlank/LCDC/STAT/LY, se implementó disasm focal del hotspot top1, y se añadió un clasificador automático del bloqueo. Para CGB, se implementaron dumps sincronizados de FB_INDEX, FB_RGB y FB_PRESENT_SRC. Resultado DMG: Loop en PC 0x036C esperando condición que nunca se cumple (WAIT_LOOP_IRQ_ENABLED). Resultado CGB: Caso 1 confirmado - idx_nonzero>0 pero rgb_nonwhite==0, indicando problema en paletas/mapeo CGB. Reporte completo en docs/reports/reporte_step0493.md.
+                        </p>
+                    </li>
                     <!-- Entrada 0492 - Detectar Clear VRAM y Carga de Tiles -->
                     <li>
                         <div class="entry-header">

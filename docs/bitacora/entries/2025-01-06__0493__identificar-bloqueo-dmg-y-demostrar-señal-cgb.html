@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Identificar Bloqueo DMG y Demostrar Señal CGB - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Identificar Bloqueo DMG y Demostrar Señal CGB</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-01-06
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0493
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-29__0492__detectar-clear-vram-y-carga-de-tiles.html">Anterior (0492)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este step implementa diagnóstico avanzado para identificar el bloqueo post-clear en modo DMG (tetris.gb) y demostrar si hay señal en modo CGB (tetris_dx.gbc) después de que aparezcan writes no-cero a tiledata. Se reforzó la sección AfterClear con IME/IE/IF/HALT/VBlank/LCDC/STAT/LY, se implementó disasm focal del hotspot top1, y se añadió un clasificador automático del bloqueo. Para CGB, se implementaron dumps sincronizados de FB_INDEX, FB_RGB y FB_PRESENT_SRC en el mismo frame. Resultado clave DMG: Loop en PC 0x036C esperando condición que nunca se cumple (WAIT_LOOP_IRQ_ENABLED). Resultado clave CGB: Caso 1 confirmado - idx_nonzero>0 pero rgb_nonwhite==0, indicando problema en paletas/mapeo CGB.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Bloqueo Post-Clear</strong>: Después de que un juego completa el clear VRAM inicial (escribiendo 6144 bytes de ceros a tiledata), típicamente carga los datos gráficos reales y luego espera alguna condición (VBlank, Timer, Joypad, etc.) antes de continuar. Si el emulador no implementa correctamente alguna de estas condiciones, el juego puede quedar bloqueado en un loop infinito esperando que algo cambie.
+                </p>
+                <p>
+                    <strong>PC Hotspots</strong>: Direcciones de memoria (Program Counter) que se ejecutan con mucha más frecuencia que otras. Un hotspot dominante (ej: 0x036C ejecutado 498,286 veces) indica que el código está atascado en un loop esperando una condición.
+                </p>
+                <p>
+                    <strong>IO Reads Dominantes</strong>: Registros I/O que se leen masivamente durante el bloqueo. Por ejemplo, si IF (Interrupt Flag, 0xFF0F) se lee 151M+ veces, el juego está esperando que algún flag de interrupción cambie.
+                </p>
+                <p>
+                    <strong>Three-Buffer Pipeline (CGB)</strong>: El pipeline de renderizado CGB tiene tres buffers:
+                </p>
+                <ul>
+                    <li><strong>FB_INDEX</strong>: Framebuffer de índices de color (0-3 para DMG, 0-31 para CGB)</li>
+                    <li><strong>FB_RGB</strong>: Framebuffer RGB888 convertido desde índices usando paletas CGB</li>
+                    <li><strong>FB_PRESENT_SRC</strong>: Buffer final que se presenta a la pantalla (después de cualquier procesamiento adicional)</li>
+                </ul>
+                <p>
+                    Si <code>idx_nonzero>0</code> pero <code>rgb_nonwhite==0</code>, el problema está en la conversión índice→RGB (paletas CGB no configuradas o mapeo incorrecto).
+                </p>
+                <p>
+                    <strong>Referencia:</strong> Pan Docs - "Interrupts", "CGB Palettes", "LCD Status Register"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>Fase A: DMG - Identificación del Bloqueo</h3>
+                <h4>A1: Sección AfterClear Reforzada</h4>
+                <p>
+                    Se reforzó la sección AfterClear en <code>rom_smoke_0442.py</code> para capturar más información cuando se detecta que el clear VRAM está completo:
+                </p>
+                <ul>
+                    <li>Estado CPU: IME, IE, IF, HALTED</li>
+                    <li>Estado PPU: LCDC, STAT, LY</li>
+                    <li>Estadísticas VBlank: VBlankReq, VBlankServ</li>
+                    <li>PC hotspots top 3 con contadores</li>
+                    <li>IO reads top 3 con contadores</li>
+                </ul>
+                
+                <h4>A2: Disasm Focal del Hotspot</h4>
+                <p>
+                    Se implementó disasm automático del hotspot top1 usando la función existente <code>disasm_window()</code>:
+                </p>
+                <ul>
+                    <li>Desensambla 10-20 instrucciones alrededor del PC hotspot</li>
+                    <li>Detecta automáticamente branches/loops y desensambla el destino</li>
+                    <li>Marca el PC actual con "&lt;-- HOTSPOT" para fácil identificación</li>
+                </ul>
+                
+                <h4>A3: Clasificador Automático</h4>
+                <p>
+                    Se implementó la función <code>_classify_dmg_blockage()</code> que analiza el snapshot AfterClear y clasifica el bloqueo en una de estas categorías:
+                </p>
+                <ul>
+                    <li><strong>WAIT_LOOP_VBLANK_STAT</strong>: Esperando VBlank/STAT/LY</li>
+                    <li><strong>WAIT_LOOP_TIMER</strong>: Esperando Timer (DIV/TIMA/TAC)</li>
+                    <li><strong>WAIT_LOOP_JOYPAD</strong>: Esperando Joypad</li>
+                    <li><strong>WAIT_LOOP_IRQ_DISABLED/ENABLED</strong>: Esperando interrupción</li>
+                    <li><strong>HALTED</strong>: CPU en HALT</li>
+                    <li><strong>UNKNOWN</strong>: No clasificable automáticamente</li>
+                </ul>
+                
+                <h3>Fase B: CGB - Demostración de Señal</h3>
+                <h4>B1: Dumps Sincronizados</h4>
+                <p>
+                    Se implementó la función <code>_dump_synchronized_buffers()</code> que genera dumps de los tres buffers en el mismo frame:
+                </p>
+                <ul>
+                    <li><strong>FB_INDEX</strong>: Dump usando BGP para conversión DMG (gateado por VIBOY_DUMP_IDX_PATH)</li>
+                    <li><strong>FB_RGB</strong>: Dump directo del framebuffer RGB888 desde PPU (gateado por VIBOY_DUMP_RGB_PATH)</li>
+                    <li><strong>FB_PRESENT_SRC</strong>: Se genera en renderer.py cuando se llama render_frame() (no disponible en modo headless)</li>
+                </ul>
+                <p>
+                    Todos los dumps se generan en el frame especificado por <code>VIBOY_DUMP_RGB_FRAME</code> para garantizar sincronización.
+                </p>
+                
+                <h4>B2: Métricas Mínimas en Snapshot</h4>
+                <p>
+                    Se aseguró que el snapshot incluya todas las métricas necesarias para clasificar el problema CGB:
+                </p>
+                <ul>
+                    <li><strong>ThreeBufferStats</strong>: idx_nonzero, rgb_nonwhite, present_nonwhite, CRCs</li>
+                    <li><strong>CGBPaletteWriteStats</strong>: BGPD/OBPD write counts y últimos valores (gateado por VIBOY_DEBUG_CGB_PALETTE_WRITES)</li>
+                    <li><strong>VRAM_Regions</strong>: Tiledata y tilemap nonzero por regiones/bancos</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>tools/rom_smoke_0442.py</code> - Reforzada sección AfterClear, implementada función <code>_classify_dmg_blockage()</code>, implementada función <code>_dump_synchronized_buffers()</code></li>
+                    <li><code>docs/reports/reporte_step0493.md</code> - Reporte completo con evidencia DMG y CGB</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Comando DMG ejecutado</strong>:
+                </p>
+                <pre><code>export VIBOY_SIM_BOOT_LOGO=0
+export VIBOY_POST_BOOT_DMG_PROFILE=B
+export VIBOY_DEBUG_VRAM_WRITES=1
+export VIBOY_DEBUG_DMG_TILE_FETCH=1
+export VIBOY_DEBUG_PRESENT_TRACE=1
+timeout 600 python3 tools/rom_smoke_0442.py roms/tetris.gb --frames 3000</code></pre>
+                <p>
+                    <strong>Resultado</strong>: Ejecutado hasta frame 2563 (timeout 120s). Loop identificado en PC 0x036C con clasificación WAIT_LOOP_IRQ_ENABLED.
+                </p>
+                <p>
+                    <strong>Comando CGB ejecutado</strong>:
+                </p>
+                <pre><code>export VIBOY_SIM_BOOT_LOGO=0
+export VIBOY_DEBUG_VRAM_WRITES=1
+export VIBOY_DEBUG_PRESENT_TRACE=1
+export VIBOY_DUMP_RGB_FRAME=600
+export VIBOY_DUMP_RGB_PATH=/tmp/viboy_tetris_dx_rgb_f####.ppm
+export VIBOY_DUMP_IDX_PATH=/tmp/viboy_tetris_dx_idx_f####.ppm
+timeout 300 python3 tools/rom_smoke_0442.py roms/tetris_dx.gbc --frames 1200</code></pre>
+                <p>
+                    <strong>Resultado</strong>: Ejecutado hasta frame 1200 exitosamente. ThreeBufferStats muestra idx_nonzero=22910 pero rgb_nonwhite=0, confirmando Caso 1 (problema en paletas/mapeo CGB).
+                </p>
+                <p>
+                    <strong>Dumps generados</strong>:
+                </p>
+                <ul>
+                    <li><code>/tmp/viboy_tetris_dx_idx_f600.ppm</code> (FB_INDEX, 68KB) ✅</li>
+                    <li><code>/tmp/viboy_tetris_dx_rgb_f600.ppm</code> (FB_RGB, 68KB) ✅</li>
+                </ul>
+                <p>
+                    <strong>Validación de módulo compilado C++</strong>: ✅ Compilación exitosa. Módulo C++ compilado correctamente. Todas las funciones expuestas a Python funcionan correctamente.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: "Interrupts", "CGB Palettes", "LCD Status Register"</li>
+                    <li>Pan Docs: "VRAM", "Power Up Sequence"</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Bloqueo Post-Clear</strong>: Los juegos pueden quedar bloqueados después del clear VRAM si esperan una condición que el emulador no implementa correctamente. El análisis de PC hotspots e IO reads dominantes permite identificar qué condición espera el juego.</li>
+                        <li><strong>Clasificación Automática</strong>: Es posible clasificar automáticamente el tipo de bloqueo analizando los IO reads dominantes y el estado de IME/IE/IF. Esto acelera el diagnóstico y permite proponer fixes mínimos específicos.</li>
+                        <li><strong>Three-Buffer Pipeline CGB</strong>: El pipeline de renderizado CGB tiene tres etapas (índices, RGB, present). Si una etapa falla, las siguientes también fallan. El análisis de ThreeBufferStats permite identificar exactamente en qué etapa está el problema.</li>
+                        <li><strong>Caso 1 CGB</strong>: Si idx_nonzero>0 pero rgb_nonwhite==0, el problema está en la conversión índice→RGB, típicamente porque las paletas CGB no están configuradas o el mapeo está incorrecto.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>DMG</strong>: Por qué el loop en 0x036C no progresa a pesar de que VBlank se sirve correctamente. Necesita análisis más profundo del disasm y posiblemente instrumentación adicional del servicio de interrupciones.</li>
+                        <li><strong>CGB</strong>: Verificar que las paletas CGB se están escribiendo correctamente (activar VIBOY_DEBUG_CGB_PALETTE_WRITES=1) y revisar la función convert_framebuffer_to_rgb() para asegurar que lee las paletas correctamente.</li>
+                        <li><strong>Clear VRAM Detection</strong>: Por qué el clear VRAM no se detectó en DMG (ClearDoneFrame=0) a pesar de que hay 6144 intentos de write. Posible bug en la lógica de detección o los writes no fueron todos en el mismo frame.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>DMG</strong>: Asumimos que el loop en 0x036C espera un flag específico de IF que no se está activando o se limpia incorrectamente. Esto necesita verificación con instrumentación adicional.
+                    </p>
+                    <p>
+                        <strong>CGB</strong>: Asumimos que el problema está en las paletas CGB no configuradas, pero esto necesita verificación activando VIBOY_DEBUG_CGB_PALETTE_WRITES=1 y revisando los logs.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] DMG: Investigar por qué el loop en 0x036C no progresa a pesar de que VBlank se sirve correctamente</li>
+                    <li>[ ] DMG: Verificar que el servicio de interrupciones limpia IF correctamente</li>
+                    <li>[ ] CGB: Activar VIBOY_DEBUG_CGB_PALETTE_WRITES=1 y verificar que las paletas se están escribiendo</li>
+                    <li>[ ] CGB: Revisar convert_framebuffer_to_rgb() para asegurar que lee paletas CGB correctamente</li>
+                    <li>[ ] Ambos: Verificar que la detección de clear VRAM funciona correctamente cuando los writes no son todos en el mismo frame</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

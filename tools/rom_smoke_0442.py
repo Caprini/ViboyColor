@@ -1376,6 +1376,97 @@ class ROMSmokeRunner:
             import traceback
             traceback.print_exc()
     
+    def _dump_synchronized_buffers(self, frame_idx: int):
+        """
+        Step 0493: Dumps sincronizados de FB_INDEX, FB_RGB, FB_PRESENT_SRC en el mismo frame.
+        
+        Gateado por VIBOY_DUMP_RGB_FRAME (usa el mismo frame que RGB dump).
+        Paths: VIBOY_DUMP_IDX_PATH, VIBOY_DUMP_RGB_PATH, VIBOY_DUMP_PRESENT_PATH
+        
+        Args:
+            frame_idx: Número de frame actual
+        """
+        import os
+        
+        env_frame = os.getenv("VIBOY_DUMP_RGB_FRAME")
+        if not env_frame:
+            return
+        
+        try:
+            target_frame = int(env_frame)
+        except ValueError:
+            return
+        
+        if frame_idx != target_frame:
+            return
+        
+        # Dump FB_INDEX
+        try:
+            fb_indices = self.ppu.get_presented_framebuffer_indices()
+            if fb_indices is not None:
+                dump_path_idx = os.environ.get('VIBOY_DUMP_IDX_PATH', '/tmp/viboy_idx_f####.ppm')
+                dump_path_idx = dump_path_idx.replace('####', str(frame_idx))
+                
+                # Leer BGP para conversión DMG
+                bgp = self.mmu.read(0xFF47)
+                shades = [
+                    (bgp >> 0) & 0x03,
+                    (bgp >> 2) & 0x03,
+                    (bgp >> 4) & 0x03,
+                    (bgp >> 6) & 0x03,
+                ]
+                shade_to_rgb = [
+                    (255, 255, 255),  # Shade 0 = blanco
+                    (192, 192, 192),  # Shade 1 = gris claro
+                    (96, 96, 96),     # Shade 2 = gris oscuro
+                    (0, 0, 0),        # Shade 3 = negro
+                ]
+                
+                output_path_idx = Path(dump_path_idx)
+                output_path_idx.parent.mkdir(parents=True, exist_ok=True)
+                
+                with open(output_path_idx, 'wb') as f:
+                    f.write(b"P6\n")
+                    f.write(f"{160} {144}\n".encode())
+                    f.write(b"255\n")
+                    
+                    for idx in fb_indices:
+                        shade = shades[idx & 0x03]
+                        r, g, b = shade_to_rgb[shade]
+                        f.write(bytes([r, g, b]))
+                
+                print(f"[ROM-SMOKE-SYNC-DUMP] FB_INDEX dump guardado en {output_path_idx} (frame {frame_idx})")
+        except Exception as e:
+            print(f"[ROM-SMOKE-SYNC-DUMP] ERROR al escribir FB_INDEX PPM: {e}")
+        
+        # Dump FB_RGB (ya existe en _dump_rgb_framebuffer_to_ppm, pero lo hacemos aquí también para sincronización)
+        try:
+            # Obtener framebuffer RGB desde PPU (CGB)
+            if hasattr(self.ppu, 'get_framebuffer_rgb'):
+                fb_rgb = self.ppu.get_framebuffer_rgb()
+                if fb_rgb is not None and len(fb_rgb) == 69120:  # 160 * 144 * 3
+                    dump_path_rgb = os.environ.get('VIBOY_DUMP_RGB_PATH', '/tmp/viboy_rgb_f####.ppm')
+                    dump_path_rgb = dump_path_rgb.replace('####', str(frame_idx))
+                    
+                    output_path_rgb = Path(dump_path_rgb)
+                    output_path_rgb.parent.mkdir(parents=True, exist_ok=True)
+                    
+                    with open(output_path_rgb, 'wb') as f:
+                        f.write(b"P6\n")
+                        f.write(f"{160} {144}\n".encode())
+                        f.write(b"255\n")
+                        f.write(fb_rgb.tobytes() if hasattr(fb_rgb, 'tobytes') else bytes(fb_rgb))
+                    
+                    print(f"[ROM-SMOKE-SYNC-DUMP] FB_RGB dump guardado en {output_path_rgb} (frame {frame_idx})")
+        except Exception as e:
+            print(f"[ROM-SMOKE-SYNC-DUMP] ERROR al escribir FB_RGB PPM: {e}")
+        
+        # Dump FB_PRESENT_SRC (desde renderer si está disponible)
+        # Nota: FB_PRESENT_SRC se genera en renderer.py, pero aquí podemos intentar obtenerlo
+        # si el renderer está disponible. Por ahora, este dump se hace en renderer.py
+        # cuando se llama render_frame() con el flag VIBOY_DUMP_RGB_FRAME.
+        # No hacemos nada aquí para FB_PRESENT_SRC porque se maneja en renderer.py
+    
     def run(self):
         """Ejecuta el smoke test."""
         # Step 0465: Imprimir estado de env vars para evidencia (solo en tools, no en runtime)
@@ -1497,6 +1588,9 @@ class ROMSmokeRunner:
             
             # Step 0489: Dump framebuffer RGB a PPM si está activo (Fase B)
             self._dump_rgb_framebuffer_to_ppm(frame_idx)
+            
+            # Step 0493: Dumps sincronizados para CGB (FB_INDEX, FB_RGB, FB_PRESENT_SRC en mismo frame)
+            self._dump_synchronized_buffers(frame_idx)
             
             # --- Step 0469: Snapshot cada 60 frames (o frames 0, 60, 120, 180, 240) ---
             should_snapshot = (frame_idx % 60 == 0) or frame_idx < 3
@@ -2122,7 +2216,7 @@ class ROMSmokeRunner:
                       f"VRAM_Regions_TiledataNZ={vram_tiledata_nonzero} VRAM_Regions_TilemapNZ={vram_tilemap_nonzero} | "
                       f"VRAMWriteStats={vram_write_stats_str}")
                 
-                # --- Step 0492: AfterClear section ---
+                # --- Step 0493: AfterClear section reforzada ---
                 if vram_write_stats and vram_write_stats.get('tiledata_clear_done_frame', 0) > 0:
                     clear_frame = vram_write_stats['tiledata_clear_done_frame']
                     current_frame = frame_idx
@@ -2130,14 +2224,103 @@ class ROMSmokeRunner:
                     # Solo capturar si estamos después del clear
                     if current_frame >= clear_frame:
                         frames_since_clear = current_frame - clear_frame
+                        
                         # PC hotspots top 3 (ya calculados arriba)
                         pc_hotspots_after_clear = pc_hotspots_str
+                        pc_hotspots_list = pc_hotspots_top3  # Lista de tuplas (pc, count)
+                        
                         # IO reads top 3 (ya calculados arriba)
                         io_reads_after_clear = io_reads_str
+                        io_reads_list = io_reads_top3  # Lista de tuplas (addr, count)
                         
+                        # Estado CPU/MMU
+                        ime_val = 1 if ime else 0
+                        halted_val = 1 if halted else 0
+                        
+                        # Registros I/O
+                        lcdc_val = lcdc
+                        stat_val = stat
+                        ly_val = ly
+                        
+                        # VBlank stats
+                        vblank_req_val = vblank_req
+                        vblank_serv_val = vblank_serv
+                        
+                        # Disasm del hotspot top1
+                        disasm_hotspot = ""
+                        disasm_branch_dest = ""
+                        if pc_hotspots_list:
+                            pc_hotspot_1 = pc_hotspots_list[0][0]
+                            try:
+                                disasm_window_list = disasm_window(self.mmu, pc_hotspot_1, before=10, after=20)
+                                
+                                # Construir disasm snippet
+                                disasm_lines = []
+                                for inst_pc, mnemonic, is_current in disasm_window_list[:20]:
+                                    marker = " <-- HOTSPOT" if is_current else ""
+                                    disasm_lines.append(f"0x{inst_pc:04X}: {mnemonic}{marker}")
+                                
+                                disasm_hotspot = "\n".join(disasm_lines)
+                                
+                                # Detectar branch/loop y disasm del destino
+                                for inst_pc, mnemonic, is_current in disasm_window_list:
+                                    if 'JR' in mnemonic or 'JP' in mnemonic:
+                                        # Intentar extraer dirección destino
+                                        if '0x' in mnemonic:
+                                            try:
+                                                # Extraer dirección del mnemonic (ej: "JP 0x1234" o "JR 0x1234")
+                                                parts = mnemonic.split()
+                                                for part in parts:
+                                                    if part.startswith('0x'):
+                                                        dest_addr = int(part[2:], 16)
+                                                        dest_disasm = disasm_window(self.mmu, dest_addr, before=5, after=10)
+                                                        dest_lines = []
+                                                        for d_pc, d_mnem, _ in dest_disasm[:10]:
+                                                            dest_lines.append(f"0x{d_pc:04X}: {d_mnem}")
+                                                        disasm_branch_dest = "\n".join(dest_lines)
+                                                        break
+                                            except:
+                                                pass
+                                        break
+                            except Exception as e:
+                                disasm_hotspot = f"ERROR: {e}"
+                        
+                        # Clasificación del bloqueo
+                        after_clear_snapshot = {
+                            'frames_since_clear': frames_since_clear,
+                            'pc_hotspots_top3': pc_hotspots_list,
+                            'io_reads_top3': io_reads_list,
+                            'ime': ime_val,
+                            'ie': ie,
+                            'if_reg': if_reg,
+                            'halted': halted_val,
+                            'vblank_req': vblank_req_val,
+                            'vblank_serv': vblank_serv_val,
+                            'lcdc': lcdc_val,
+                            'stat': stat_val,
+                            'ly': ly_val,
+                            'disasm_hotspot_top1': disasm_hotspot,
+                            'disasm_branch_dest': disasm_branch_dest,
+                        }
+                        
+                        classification = self._classify_dmg_blockage(after_clear_snapshot)
+                        
+                        # Imprimir sección AfterClear reforzada
                         print(f"[SMOKE-AFTERCLEAR] Frame={frame_idx} | FramesSinceClear={frames_since_clear} | "
                               f"PCHotspotsTop3={pc_hotspots_after_clear} | "
-                              f"IOReadsTop3={io_reads_after_clear}")
+                              f"IOReadsTop3={io_reads_after_clear} | "
+                              f"IME={ime_val} IE=0x{ie:02X} IF=0x{if_reg:02X} HALTED={halted_val} | "
+                              f"VBlankReq={vblank_req_val} VBlankServ={vblank_serv_val} | "
+                              f"LCDC=0x{lcdc_val:02X} STAT=0x{stat_val:02X} LY=0x{ly_val:02X}")
+                        
+                        if disasm_hotspot:
+                            print(f"[SMOKE-AFTERCLEAR-DISASM] Hotspot Top1 (0x{pc_hotspots_list[0][0]:04X}):\n{disasm_hotspot}")
+                        
+                        if disasm_branch_dest:
+                            print(f"[SMOKE-AFTERCLEAR-DISASM] Branch Destination:\n{disasm_branch_dest}")
+                        
+                        if classification:
+                            print(f"[SMOKE-AFTERCLEAR-CLASSIFICATION] {classification}")
                 # -----------------------------------------
                 
                 # Step 0485: Imprimir tail de JOYP trace si está activo (últimos 16 eventos compactados)
@@ -2234,6 +2417,72 @@ class ROMSmokeRunner:
         
         # Si no encaja en ningún caso, retornar None
         return None
+    
+    def _classify_dmg_blockage(self, after_clear_snapshot: dict) -> str:
+        """
+        Step 0493: Clasifica el bloqueo DMG post-clear en una categoría.
+        
+        Args:
+            after_clear_snapshot: Diccionario con datos del snapshot AfterClear
+        
+        Returns:
+            Categoría del bloqueo y fix mínimo propuesto
+        """
+        if not after_clear_snapshot:
+            return "UNKNOWN: No hay datos AfterClear"
+        
+        pc_hotspots_list = after_clear_snapshot.get('pc_hotspots_top3', [])
+        io_reads_list = after_clear_snapshot.get('io_reads_top3', [])
+        ime = after_clear_snapshot.get('ime', 0)
+        ie = after_clear_snapshot.get('ie', 0)
+        if_reg = after_clear_snapshot.get('if_reg', 0)
+        halted = after_clear_snapshot.get('halted', 0)
+        vblank_req = after_clear_snapshot.get('vblank_req', 0)
+        vblank_serv = after_clear_snapshot.get('vblank_serv', 0)
+        ly = after_clear_snapshot.get('ly', 0)
+        stat = after_clear_snapshot.get('stat', 0)
+        
+        # Analizar IO reads dominantes
+        io_dominant = None
+        io_dominant_count = 0
+        if io_reads_list:
+            io_dominant_addr = io_reads_list[0][0]
+            io_dominant_count = io_reads_list[0][1]
+            
+            if io_dominant_addr == 0xFF44:  # LY
+                io_dominant = "LY"
+            elif io_dominant_addr == 0xFF41:  # STAT
+                io_dominant = "STAT"
+            elif io_dominant_addr == 0xFF0F:  # IF
+                io_dominant = "IF"
+            elif io_dominant_addr == 0xFFFF:  # IE
+                io_dominant = "IE"
+            elif io_dominant_addr == 0xFF04:  # DIV
+                io_dominant = "DIV"
+            elif io_dominant_addr == 0xFF05:  # TIMA
+                io_dominant = "TIMA"
+            elif io_dominant_addr == 0xFF07:  # TAC
+                io_dominant = "TAC"
+            elif io_dominant_addr == 0xFF00:  # JOYP
+                io_dominant = "JOYP"
+        
+        # Clasificar
+        if io_dominant == "LY" or io_dominant == "STAT":
+            return f"WAIT_LOOP_VBLANK_STAT: Esperando VBlank/STAT/LY. IO dominante: {io_dominant} (count={io_dominant_count}). Fix: Verificar timing PPU/interrupciones VBlank/STAT."
+        elif io_dominant == "DIV" or io_dominant == "TIMA" or io_dominant == "TAC":
+            return f"WAIT_LOOP_TIMER: Esperando Timer. IO dominante: {io_dominant} (count={io_dominant_count}). Fix: Verificar Timer/DIV/TIMA/TAC."
+        elif io_dominant == "JOYP":
+            return f"WAIT_LOOP_JOYPAD: Esperando Joypad. IO dominante: {io_dominant} (count={io_dominant_count}). Fix: Verificar Joypad/autopress."
+        elif io_dominant == "IF" or io_dominant == "IE":
+            if ime == 0:
+                return f"WAIT_LOOP_IRQ_DISABLED: Esperando interrupción pero IME=0. IO dominante: {io_dominant} (count={io_dominant_count}). Fix: Verificar IME/IE/IF/timing interrupciones."
+            else:
+                return f"WAIT_LOOP_IRQ_ENABLED: Esperando interrupción con IME=1. IO dominante: {io_dominant} (count={io_dominant_count}), IE={ie:02X}, IF={if_reg:02X}. Fix: Verificar servicio de interrupciones."
+        elif halted == 1:
+            return f"HALTED: CPU en HALT. IME={ime}, IE={ie:02X}, IF={if_reg:02X}. Fix: Verificar que interrupciones despierten CPU de HALT."
+        else:
+            pc_hotspot_1 = pc_hotspots_list[0][0] if pc_hotspots_list else 0xFFFF
+            return f"UNKNOWN: PC hotspot={pc_hotspot_1:04X}, IO dominante={io_dominant}, IME={ime}, IE={ie:02X}, IF={if_reg:02X}. Revisar disasm para identificar condición."
     
     def _print_summary(self):
         """Imprime resumen final de métricas."""
