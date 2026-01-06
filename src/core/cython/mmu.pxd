@@ -57,7 +57,29 @@ cdef extern from "MMU.hpp":
         uint8_t last_obpi
     
     # Step 0490: Estructura VRAMWriteStats (definida fuera de la clase MMU)
+    # Step 0491: Ampliada para separar attempts vs nonzero writes + bank + VBK
     cdef struct VRAMWriteStats:
+        # Tiledata (0x8000-0x97FF)
+        uint32_t tiledata_attempts_bank0
+        uint32_t tiledata_attempts_bank1
+        uint32_t tiledata_nonzero_writes_bank0
+        uint32_t tiledata_nonzero_writes_bank1
+        # Tilemap (0x9800-0x9FFF)
+        uint32_t tilemap_attempts_bank0
+        uint32_t tilemap_attempts_bank1
+        uint32_t tilemap_nonzero_writes_bank0
+        uint32_t tilemap_nonzero_writes_bank1
+        # Last nonzero tiledata write
+        uint16_t last_nonzero_tiledata_write_pc
+        uint16_t last_nonzero_tiledata_write_addr
+        uint8_t last_nonzero_tiledata_write_val
+        uint8_t last_nonzero_tiledata_write_bank
+        # Tracking de VBK
+        uint8_t vbk_value_current
+        uint32_t vbk_write_count
+        uint16_t last_vbk_write_pc
+        uint8_t last_vbk_write_val
+        # Legacy (mantener por compatibilidad)
         uint32_t vram_write_attempts_tiledata
         uint32_t vram_write_attempts_tilemap
         uint32_t vram_write_blocked_mode3_tiledata

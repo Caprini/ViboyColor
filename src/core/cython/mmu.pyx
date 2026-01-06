@@ -1319,14 +1319,12 @@ cdef class PyMMU:
     def get_vram_write_stats(self):
         """
         Step 0490: Obtiene estadísticas de writes a VRAM.
+        Step 0491: Ampliada para separar attempts vs nonzero writes + bank + VBK.
         
         Devuelve métricas sobre intentos de escritura a VRAM y bloqueos por Mode 3.
         
         Returns:
             dict con estadísticas de writes a VRAM o None si no disponible.
-            Keys: 'vram_write_attempts_tiledata', 'vram_write_attempts_tilemap',
-                  'vram_write_blocked_mode3_tiledata', 'vram_write_blocked_mode3_tilemap',
-                  'last_blocked_vram_write_pc', 'last_blocked_vram_write_addr'
         """
         if self._mmu == NULL:
             return None
@@ -1334,6 +1332,23 @@ cdef class PyMMU:
         cdef mmu.VRAMWriteStats stats = self._mmu.get_vram_write_stats()
         
         return {
+            'tiledata_attempts_bank0': stats.tiledata_attempts_bank0,
+            'tiledata_attempts_bank1': stats.tiledata_attempts_bank1,
+            'tiledata_nonzero_writes_bank0': stats.tiledata_nonzero_writes_bank0,
+            'tiledata_nonzero_writes_bank1': stats.tiledata_nonzero_writes_bank1,
+            'tilemap_attempts_bank0': stats.tilemap_attempts_bank0,
+            'tilemap_attempts_bank1': stats.tilemap_attempts_bank1,
+            'tilemap_nonzero_writes_bank0': stats.tilemap_nonzero_writes_bank0,
+            'tilemap_nonzero_writes_bank1': stats.tilemap_nonzero_writes_bank1,
+            'last_nonzero_tiledata_write_pc': stats.last_nonzero_tiledata_write_pc,
+            'last_nonzero_tiledata_write_addr': stats.last_nonzero_tiledata_write_addr,
+            'last_nonzero_tiledata_write_val': stats.last_nonzero_tiledata_write_val,
+            'last_nonzero_tiledata_write_bank': stats.last_nonzero_tiledata_write_bank,
+            'vbk_value_current': stats.vbk_value_current,
+            'vbk_write_count': stats.vbk_write_count,
+            'last_vbk_write_pc': stats.last_vbk_write_pc,
+            'last_vbk_write_val': stats.last_vbk_write_val,
+            # Legacy
             'vram_write_attempts_tiledata': stats.vram_write_attempts_tiledata,
             'vram_write_attempts_tilemap': stats.vram_write_attempts_tilemap,
             'vram_write_blocked_mode3_tiledata': stats.vram_write_blocked_mode3_tiledata,

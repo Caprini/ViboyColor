@@ -833,11 +833,15 @@ uint8_t MMU::read(uint16_t addr) const {
     }
     
     // --- Step 0389: Registro VBK (0xFF4F) - VRAM Bank Select ---
+    // --- Step 0491: Tracking de VBK para VRAMWriteStats ---
     // Lectura de VBK devuelve 0xFE | banco_actual (bit 0)
     // Bits 1-7: siempre 1 (no implementados)
     // Bit 0: banco actual (0 o 1)
     // Fuente: Pan Docs - CGB Registers, FF4F - VBK
     if (addr == 0xFF4F) {
+        // Step 0491: Actualizar valor actual de VBK (gateado por VIBOY_DEBUG_VRAM_WRITES)
+        // Nota: No actualizamos vram_write_stats_ aquí porque read() es const.
+        // El valor actual se actualiza en write() cuando se escribe a VBK.
         return 0xFE | (vram_bank_ & 0x01);
     }
     
@@ -3078,10 +3082,21 @@ void MMU::write(uint16_t addr, uint8_t value) {
     }
     
     // --- Step 0389: Manejo de Escritura a VBK (0xFF4F) ---
+    // --- Step 0491: Tracking de VBK para VRAMWriteStats ---
     // VBK selecciona qué banco de VRAM es visible para la CPU (bit 0)
     // Fuente: Pan Docs - CGB Registers, FF4F - VBK
     if (addr == 0xFF4F) {
         vram_bank_ = value & 0x01;  // Solo bit 0 es utilizado
+        
+        // Step 0491: Tracking de VBK (gateado por VIBOY_DEBUG_VRAM_WRITES)
+        const char* env_debug_vram = std::getenv("VIBOY_DEBUG_VRAM_WRITES");
+        if (env_debug_vram && std::string(env_debug_vram) == "1") {
+            vram_write_stats_.vbk_write_count++;
+            vram_write_stats_.last_vbk_write_pc = debug_current_pc;
+            vram_write_stats_.last_vbk_write_val = value;
+            vram_write_stats_.vbk_value_current = vram_bank_;
+        }
+        
         static int vbk_write_count = 0;
         if (vbk_write_count < 50) {
             printf("[VBK-WRITE] PC:0x%04X | VBK <- 0x%02X | VRAM Bank: %d\n",
@@ -3123,13 +3138,54 @@ void MMU::write(uint16_t addr, uint8_t value) {
         // -----------------------------------------
         
         // --- Step 0490: Instrumentación de writes a VRAM (gateado por VIBOY_DEBUG_VRAM_WRITES) ---
+        // --- Step 0491: Ampliada para separar attempts vs nonzero writes + bank + VBK ---
         const char* env_debug_vram = std::getenv("VIBOY_DEBUG_VRAM_WRITES");
         if (env_debug_vram && std::string(env_debug_vram) == "1") {
-            // Contar attempts
-            if (addr >= 0x8000 && addr <= 0x97FF) {
-                vram_write_stats_.vram_write_attempts_tiledata++;
-            } else if (addr >= 0x9800 && addr <= 0x9FFF) {
-                vram_write_stats_.vram_write_attempts_tilemap++;
+            // Obtener banco actual (VBK)
+            uint8_t vbk = vram_bank_;
+            
+            // Determinar región
+            bool is_tiledata = (addr >= 0x8000 && addr <= 0x97FF);
+            bool is_tilemap = (addr >= 0x9800 && addr <= 0x9FFF);
+            
+            // Contar attempts por banco
+            if (is_tiledata) {
+                if (vbk == 0) {
+                    vram_write_stats_.tiledata_attempts_bank0++;
+                } else {
+                    vram_write_stats_.tiledata_attempts_bank1++;
+                }
+                vram_write_stats_.vram_write_attempts_tiledata++;  // Legacy
+            } else if (is_tilemap) {
+                if (vbk == 0) {
+                    vram_write_stats_.tilemap_attempts_bank0++;
+                } else {
+                    vram_write_stats_.tilemap_attempts_bank1++;
+                }
+                vram_write_stats_.vram_write_attempts_tilemap++;  // Legacy
+            }
+            
+            // Contar nonzero writes
+            if (value != 0x00) {
+                if (is_tiledata) {
+                    if (vbk == 0) {
+                        vram_write_stats_.tiledata_nonzero_writes_bank0++;
+                    } else {
+                        vram_write_stats_.tiledata_nonzero_writes_bank1++;
+                    }
+                    
+                    // Guardar último nonzero write
+                    vram_write_stats_.last_nonzero_tiledata_write_pc = debug_current_pc;
+                    vram_write_stats_.last_nonzero_tiledata_write_addr = addr;
+                    vram_write_stats_.last_nonzero_tiledata_write_val = value;
+                    vram_write_stats_.last_nonzero_tiledata_write_bank = vbk;
+                } else if (is_tilemap) {
+                    if (vbk == 0) {
+                        vram_write_stats_.tilemap_nonzero_writes_bank0++;
+                    } else {
+                        vram_write_stats_.tilemap_nonzero_writes_bank1++;
+                    }
+                }
             }
             
             // Verificar si está bloqueado por Mode 3
@@ -3145,9 +3201,9 @@ void MMU::write(uint16_t addr, uint8_t value) {
             }
             
             if (is_blocked_by_mode3) {
-                if (addr >= 0x8000 && addr <= 0x97FF) {
+                if (is_tiledata) {
                     vram_write_stats_.vram_write_blocked_mode3_tiledata++;
-                } else if (addr >= 0x9800 && addr <= 0x9FFF) {
+                } else if (is_tilemap) {
                     vram_write_stats_.vram_write_blocked_mode3_tilemap++;
                 }
                 vram_write_stats_.last_blocked_vram_write_pc = debug_current_pc;
@@ -4304,11 +4360,22 @@ HardwareMode MMU::get_hardware_mode() const {
 
 void MMU::initialize_io_registers() {
     // --- Step 0404: Inicialización de Registros de Hardware según Modo ---
+    // --- Step 0491: Ajuste para estado post-boot DMG cuando VIBOY_SIM_BOOT_LOGO=0 ---
     // Valores de Power Up Sequence según Pan Docs para DMG y CGB.
     // Los juegos dependen de este estado inicial.
     // Fuente: Pan Docs - "Power Up Sequence", "CGB Registers"
     
     bool is_cgb = (hardware_mode_ == HardwareMode::CGB);
+    
+    // Step 0491: Si es DMG y VIBOY_SIM_BOOT_LOGO=0, usar estado post-boot correcto
+    const char* env_boot_logo = std::getenv("VIBOY_SIM_BOOT_LOGO");
+    bool sim_boot_logo = (env_boot_logo && std::string(env_boot_logo) == "1");
+    
+    if (!is_cgb && !sim_boot_logo) {
+        // Modo DMG sin boot logo: usar estado post-boot según Pan Docs
+        init_post_boot_dmg_state();
+        return;
+    }
     
     // ===== PPU / Video =====
     memory_[0xFF40] = 0x91; // LCDC (LCD ON, BG ON, Window OFF, BG Tilemap 0x9800)
@@ -4432,6 +4499,53 @@ void MMU::initialize_io_registers() {
     printf("[MMU] Registros I/O inicializados para modo %s\n", is_cgb ? "CGB" : "DMG");
 }
 // --- Fin Step 0404 ---
+
+// --- Step 0491: Inicialización de estado post-boot DMG ---
+void MMU::init_post_boot_dmg_state() {
+    // Estado conocido después del boot ROM DMG
+    // Fuente: Pan Docs - Power Up Sequence
+    
+    // LCDC: LCD OFF por defecto
+    memory_[0xFF40] = 0x00;
+    
+    // STAT: 0x00 por defecto
+    memory_[0xFF41] = 0x00;
+    
+    // SCY, SCX: 0x00 por defecto
+    memory_[0xFF42] = 0x00;  // SCY
+    memory_[0xFF43] = 0x00;  // SCX
+    
+    // LY: 0x00 por defecto (será actualizado por PPU dinámicamente)
+    // Nota: LY se controla dinámicamente por la PPU, pero inicialmente es 0
+    
+    // BGP: 0xFC por defecto (shades 3,2,1,0)
+    memory_[0xFF47] = 0xFC;
+    
+    // OBP0, OBP1: 0x00 por defecto
+    memory_[0xFF48] = 0x00;  // OBP0
+    memory_[0xFF49] = 0x00;  // OBP1
+    
+    // IF: 0xE1 por defecto (VBlank, Timer, Serial flags set)
+    memory_[0xFF0F] = 0xE1;
+    
+    // IE: 0x00 por defecto
+    memory_[0xFFFF] = 0x00;
+    
+    // LYC: 0x00 por defecto
+    memory_[0xFF45] = 0x00;
+    
+    // DMA: 0xFF (inactivo)
+    memory_[0xFF46] = 0xFF;
+    
+    // WY, WX: 0x00 por defecto
+    memory_[0xFF4A] = 0x00;  // WY
+    memory_[0xFF4B] = 0x00;  // WX
+    
+    printf("[MMU-POST-BOOT-DMG] Estado post-boot DMG inicializado:\n");
+    printf("  LCDC=0x%02X (OFF) | STAT=0x%02X | BGP=0x%02X | IF=0x%02X | IE=0x%02X\n",
+           memory_[0xFF40], memory_[0xFF41], memory_[0xFF47], memory_[0xFF0F], memory_[0xFFFF]);
+}
+// --- Fin Step 0491 ---
 
 // --- Step 0402: Modo stub de Boot ROM ---
 void MMU::enable_bootrom_stub(bool enable, bool cgb_mode) {

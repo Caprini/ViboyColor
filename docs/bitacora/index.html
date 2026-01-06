@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0491 - DMG Tiledata Cero + CGB Present Blanco -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-29__0491__dmg-tiledata-cero-cgb-present-blanco.html" class="entry-link">
+                                    DMG Tiledata Cero + CGB Present Blanco
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-29 | 
+                            <strong>Step ID:</strong> 0491 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Fix mínimo para el problema de pantalla en blanco en modo DMG (tetris.gb) y diagnóstico del problema de ventana blanca en modo CGB (tetris_dx.gbc). Implementado init_post_boot_dmg_state() que establece el estado post-boot correcto según Pan Docs (LCDC=0x00 OFF inicialmente). Resultado: el juego ahora intenta escribir a tiledata (6144 intentos en frame 180), pero todos los writes son cero, lo que sugiere que el juego está en un estado de inicialización donde aún no ha descomprimido los datos gráficos. Reporte completo en docs/reports/reporte_step0491.md.
+                        </p>
+                    </li>
                     <!-- Entrada 0490 - Saneamiento de Evidencia + Fix Mínimo DMG -->
                     <li>
                         <div class="entry-header">

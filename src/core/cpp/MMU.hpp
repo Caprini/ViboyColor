@@ -59,16 +59,42 @@ struct CGBPaletteWriteStats {
 
 /**
  * Step 0490: Estructura para estadísticas de writes a VRAM.
+ * Step 0491: Ampliada para separar attempts vs nonzero writes + bank + VBK.
  * 
  * Permite rastrear si el juego está escribiendo a VRAM y si está bloqueado por Mode 3.
  */
 struct VRAMWriteStats {
-    uint32_t vram_write_attempts_tiledata;      // Intentos de write a 0x8000-0x97FF
-    uint32_t vram_write_attempts_tilemap;        // Intentos de write a 0x9800-0x9FFF
-    uint32_t vram_write_blocked_mode3_tiledata;  // Bloqueados por Mode 3 (tiledata)
-    uint32_t vram_write_blocked_mode3_tilemap;   // Bloqueados por Mode 3 (tilemap)
-    uint16_t last_blocked_vram_write_pc;         // PC del último write bloqueado
-    uint16_t last_blocked_vram_write_addr;       // Addr del último write bloqueado
+    // Tiledata (0x8000-0x97FF)
+    uint32_t tiledata_attempts_bank0;      // Intentos de write a tiledata bank 0
+    uint32_t tiledata_attempts_bank1;      // Intentos de write a tiledata bank 1
+    uint32_t tiledata_nonzero_writes_bank0;  // Writes no-cero a tiledata bank 0
+    uint32_t tiledata_nonzero_writes_bank1;  // Writes no-cero a tiledata bank 1
+    
+    // Tilemap (0x9800-0x9FFF)
+    uint32_t tilemap_attempts_bank0;      // Intentos de write a tilemap bank 0
+    uint32_t tilemap_attempts_bank1;      // Intentos de write a tilemap bank 1
+    uint32_t tilemap_nonzero_writes_bank0;  // Writes no-cero a tilemap bank 0
+    uint32_t tilemap_nonzero_writes_bank1;  // Writes no-cero a tilemap bank 1
+    
+    // Last nonzero tiledata write
+    uint16_t last_nonzero_tiledata_write_pc;
+    uint16_t last_nonzero_tiledata_write_addr;
+    uint8_t last_nonzero_tiledata_write_val;
+    uint8_t last_nonzero_tiledata_write_bank;
+    
+    // Tracking de VBK
+    uint8_t vbk_value_current;              // Valor actual de VBK (0xFF4F)
+    uint32_t vbk_write_count;               // Número de writes a VBK
+    uint16_t last_vbk_write_pc;             // PC del último write a VBK
+    uint8_t last_vbk_write_val;              // Valor escrito a VBK
+    
+    // Legacy (mantener por compatibilidad)
+    uint32_t vram_write_attempts_tiledata;  // Total attempts (bank0 + bank1)
+    uint32_t vram_write_attempts_tilemap;   // Total attempts (bank0 + bank1)
+    uint32_t vram_write_blocked_mode3_tiledata;
+    uint32_t vram_write_blocked_mode3_tilemap;
+    uint16_t last_blocked_vram_write_pc;
+    uint16_t last_blocked_vram_write_addr;
 };
 
 /**
@@ -434,6 +460,17 @@ public:
      * Fuente: Pan Docs - Power Up Sequence
      */
     void initialize_io_registers();
+    
+    /**
+     * Step 0491: Inicializa estado post-boot DMG según Pan Docs
+     * 
+     * Establece el estado conocido después del boot ROM DMG cuando
+     * VIBOY_SIM_BOOT_LOGO=0. Esto asegura que el hardware esté en un
+     * estado que permita al juego cargar gráficos correctamente.
+     * 
+     * Fuente: Pan Docs - Power Up Sequence
+     */
+    void init_post_boot_dmg_state();
     
     /**
      * Step 0419: Habilita/deshabilita escrituras directas en ROM para unit testing.
@@ -1031,7 +1068,8 @@ private:
     CGBPaletteWriteStats cgb_palette_write_stats_;
     
     // --- Step 0490: Instrumentación de writes a VRAM ---
-    VRAMWriteStats vram_write_stats_;
+    // Step 0491: mutable para permitir actualización desde métodos const (si es necesario)
+    mutable VRAMWriteStats vram_write_stats_;
     
     // --- Step 0486: Contadores JOYP por source y selección ---
     mutable uint32_t joyp_reads_prog_buttons_sel_;   // Program reads con buttons selected (bit4=0)

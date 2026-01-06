@@ -886,10 +886,13 @@ class Renderer:
                     stage_start = time.time() * 1000
                 
                 # --- Step 0489: Capturar FB_PRESENT_SRC antes de flip() ---
+                # --- Step 0491: Ampliado con dump a PPM y log detallado ---
                 import os
-                if os.environ.get('VIBOY_DEBUG_PRESENT_TRACE') == '1' and self.cpp_ppu is not None:
+                if os.environ.get('VIBOY_DEBUG_PRESENT_TRACE') == '1':
                     try:
                         import zlib
+                        import numpy as np
+                        
                         # Capturar buffer exacto que se pasa a SDL (self.surface)
                         # self.surface es 160x144 en RGB
                         present_buffer = pygame.surfarray.array3d(self.surface)  # (160, 144, 3)
@@ -904,17 +907,49 @@ class Renderer:
                                                  present_buffer_bytes[i+2] < 240)
                         
                         # Obtener formato/pitch de la surface
-                        present_fmt = 0  # RGBA8888 codificado como 0
+                        present_fmt = 0  # RGB888 codificado como 0
                         present_pitch = 160 * 3  # RGB888
                         present_w = 160
                         present_h = 144
                         
-                        # Actualizar stats en PPU
-                        self.cpp_ppu.set_present_stats(
-                            present_crc32, present_nonwhite,
-                            present_fmt, present_pitch,
-                            present_w, present_h
-                        )
+                        # Step 0491: Log detallado
+                        frame_number = getattr(self, '_path_log_count', 0)
+                        print(f"[FB_PRESENT_SRC] Frame {frame_number} | "
+                              f"CRC32=0x{present_crc32:08X} | NonWhite={present_nonwhite} | "
+                              f"W={present_w} H={present_h} Pitch={present_pitch} Format={present_fmt}")
+                        
+                        # Step 0491: Dump a PPM si está activo
+                        dump_frame = int(os.environ.get('VIBOY_DUMP_RGB_FRAME', '0'))
+                        if dump_frame > 0 and frame_number == dump_frame:
+                            dump_path = os.environ.get('VIBOY_DUMP_RGB_PATH', '/tmp/viboy_present_f####.ppm')
+                            dump_path = dump_path.replace('####', str(frame_number))
+                            
+                            # Convertir a formato PPM (P6 = binary RGB)
+                            # present_buffer_bytes ya está en formato RGB888 (R,G,B,R,G,B,...)
+                            with open(dump_path, 'wb') as f:
+                                f.write(b"P6\n")
+                                f.write(f"{present_w} {present_h}\n".encode())
+                                f.write(b"255\n")
+                                f.write(present_buffer_bytes)
+                            
+                            print(f"[FB_PRESENT_SRC] Dump guardado en {dump_path}")
+                        
+                        # Actualizar stats en PPU (si está disponible)
+                        if self.cpp_ppu is not None:
+                            self.cpp_ppu.set_present_stats(
+                                present_crc32, present_nonwhite,
+                                present_fmt, present_pitch,
+                                present_w, present_h
+                            )
+                        
+                        # Guardar en métricas si están disponibles
+                        if metrics is not None:
+                            metrics['present_crc32'] = present_crc32
+                            metrics['present_nonwhite'] = present_nonwhite
+                            metrics['present_fmt'] = present_fmt
+                            metrics['present_pitch'] = present_pitch
+                            metrics['present_w'] = present_w
+                            metrics['present_h'] = present_h
                     except Exception as e:
                         logger.warning(f"[Renderer-Present-Stats] Error capturando present stats: {e}")
                 # -------------------------------------------

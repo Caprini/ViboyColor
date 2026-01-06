@@ -1951,18 +1951,34 @@ class ROMSmokeRunner:
                     pass
                 
                 # Step 0490: VRAMWriteStats (gateado por VIBOY_DEBUG_VRAM_WRITES=1)
+                # Step 0491: Ampliada para separar attempts vs nonzero writes + bank + VBK
                 vram_write_stats = None
                 vram_write_stats_str = "N/A"
                 if os.getenv("VIBOY_DEBUG_VRAM_WRITES") == "1":
                     try:
                         vram_write_stats = self.mmu.get_vram_write_stats()
                         if vram_write_stats:
-                            vram_write_stats_str = (f"TiledataAttempts={vram_write_stats['vram_write_attempts_tiledata']} "
-                                                    f"TiledataBlocked={vram_write_stats['vram_write_blocked_mode3_tiledata']} "
-                                                    f"TilemapAttempts={vram_write_stats['vram_write_attempts_tilemap']} "
-                                                    f"TilemapBlocked={vram_write_stats['vram_write_blocked_mode3_tilemap']} "
-                                                    f"LastBlockedPC=0x{vram_write_stats['last_blocked_vram_write_pc']:04X} "
-                                                    f"LastBlockedAddr=0x{vram_write_stats['last_blocked_vram_write_addr']:04X}")
+                            vram_write_stats_str = (
+                                f"TiledataAttemptsB0={vram_write_stats.get('tiledata_attempts_bank0', 0)} "
+                                f"TiledataAttemptsB1={vram_write_stats.get('tiledata_attempts_bank1', 0)} "
+                                f"TiledataNonZeroB0={vram_write_stats.get('tiledata_nonzero_writes_bank0', 0)} "
+                                f"TiledataNonZeroB1={vram_write_stats.get('tiledata_nonzero_writes_bank1', 0)} "
+                                f"TilemapAttemptsB0={vram_write_stats.get('tilemap_attempts_bank0', 0)} "
+                                f"TilemapAttemptsB1={vram_write_stats.get('tilemap_attempts_bank1', 0)} "
+                                f"TilemapNonZeroB0={vram_write_stats.get('tilemap_nonzero_writes_bank0', 0)} "
+                                f"TilemapNonZeroB1={vram_write_stats.get('tilemap_nonzero_writes_bank1', 0)} "
+                                f"LastNonZeroTiledataPC=0x{vram_write_stats.get('last_nonzero_tiledata_write_pc', 0):04X} "
+                                f"LastNonZeroTiledataAddr=0x{vram_write_stats.get('last_nonzero_tiledata_write_addr', 0):04X} "
+                                f"LastNonZeroTiledataVal=0x{vram_write_stats.get('last_nonzero_tiledata_write_val', 0):02X} "
+                                f"LastNonZeroTiledataBank={vram_write_stats.get('last_nonzero_tiledata_write_bank', 0)} "
+                                f"VBK_Current={vram_write_stats.get('vbk_value_current', 0)} "
+                                f"VBK_WriteCount={vram_write_stats.get('vbk_write_count', 0)} "
+                                f"VBK_LastWritePC=0x{vram_write_stats.get('last_vbk_write_pc', 0):04X} "
+                                f"VBK_LastWriteVal=0x{vram_write_stats.get('last_vbk_write_val', 0):02X} "
+                                f"TiledataBlocked={vram_write_stats.get('vram_write_blocked_mode3_tiledata', 0)} "
+                                f"TilemapBlocked={vram_write_stats.get('vram_write_blocked_mode3_tilemap', 0)} "
+                                f"LastBlockedPC=0x{vram_write_stats.get('last_blocked_vram_write_pc', 0):04X} "
+                                f"LastBlockedAddr=0x{vram_write_stats.get('last_blocked_vram_write_addr', 0):04X}")
                     except (AttributeError, TypeError, KeyError) as e:
                         vram_write_stats_str = f"ERROR: {e}"
                 
