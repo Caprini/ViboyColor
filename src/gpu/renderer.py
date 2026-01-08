@@ -166,24 +166,41 @@ class Renderer:
         # Inicializar Pygame
         pygame.init()
         
-        # --- Step 0446: Usar pygame.SCALED para escalado automático (más rápido que transform.scale) ---
-        # pygame.SCALED requiere Pygame 2.0+, hacer fallback si no está disponible
-        try:
-            # Verificar si SCALED está disponible (Pygame 2.0+)
-            if hasattr(pygame, 'SCALED'):
-                # Usar SCALED: SDL escala automáticamente (mucho más rápido que transform.scale manual)
-                self.screen = pygame.display.set_mode((GB_WIDTH, GB_HEIGHT), pygame.SCALED | pygame.RESIZABLE)
-                self._use_scaled = True
-            else:
-                # Fallback para Pygame < 2.0
-                self.screen = pygame.display.set_mode((self.window_width, self.window_height), pygame.RESIZABLE)
-                self._use_scaled = False
-        except Exception as e:
-            # Si SCALED falla, usar método tradicional
-            logger.warning(f"[Renderer-Init] pygame.SCALED no disponible, usando escalado manual: {e}")
-            self.screen = pygame.display.set_mode((self.window_width, self.window_height), pygame.RESIZABLE)
+        # --- Step 0496: Modo headless - detectar si debemos crear screen ---
+        import os
+        is_headless_mode = os.environ.get('SDL_VIDEODRIVER') == 'dummy' or os.environ.get('VIBOY_HEADLESS') == '1'
+        
+        if is_headless_mode:
+            # Modo headless: no crear screen, solo Surface temporal
+            self.screen = None
             self._use_scaled = False
-        pygame.display.set_caption("ViboyColor")
+            logger.info("[Renderer-Init] Modo headless detectado, no se creará ventana")
+        else:
+            # --- Step 0446: Usar pygame.SCALED para escalado automático (más rápido que transform.scale) ---
+            # pygame.SCALED requiere Pygame 2.0+, hacer fallback si no está disponible
+            try:
+                # Verificar si SCALED está disponible (Pygame 2.0+)
+                if hasattr(pygame, 'SCALED'):
+                    # Usar SCALED: SDL escala automáticamente (mucho más rápido que transform.scale manual)
+                    self.screen = pygame.display.set_mode((GB_WIDTH, GB_HEIGHT), pygame.SCALED | pygame.RESIZABLE)
+                    self._use_scaled = True
+                else:
+                    # Fallback para Pygame < 2.0
+                    self.screen = pygame.display.set_mode((self.window_width, self.window_height), pygame.RESIZABLE)
+                    self._use_scaled = False
+            except Exception as e:
+                # Si SCALED falla, usar método tradicional
+                logger.warning(f"[Renderer-Init] pygame.SCALED no disponible, usando escalado manual: {e}")
+                try:
+                    self.screen = pygame.display.set_mode((self.window_width, self.window_height), pygame.RESIZABLE)
+                    self._use_scaled = False
+                except Exception as e2:
+                    # Si falla completamente (ej: sin display), modo headless
+                    logger.warning(f"[Renderer-Init] No se pudo crear ventana, modo headless: {e2}")
+                    self.screen = None
+                    self._use_scaled = False
+            if self.screen is not None:
+                pygame.display.set_caption("ViboyColor")
         
         # OPTIMIZACIÓN: Tile Caching
         # La Game Boy tiene 384 tiles únicos en VRAM (0x8000-0x97FF = 6KB = 384 tiles * 16 bytes)
@@ -806,15 +823,28 @@ class Renderer:
                     logger.info(f"[Renderer-RGB-CGB-Verify] Frame {self._rgb_verify_count} | "
                                f"Pixel(0,0)={tuple(p1)} | Pixel(80,72)={tuple(p2)} | Pixel(159,143)={tuple(p3)}")
                 
-                # Crear superficie base si no existe (160x144)
-                if not hasattr(self, 'surface'):
-                    self.surface = pygame.Surface((GB_WIDTH, GB_HEIGHT))
+                # --- Step 0496: Modo headless - crear Surface temporal si no hay screen ---
+                # Detectar si estamos en modo headless (no hay screen o screen es None)
+                is_headless = not hasattr(self, 'screen') or self.screen is None
+                
+                if is_headless:
+                    # Modo headless: crear Surface temporal para capturar FB_PRESENT_SRC
+                    if not hasattr(self, '_headless_surface'):
+                        self._headless_surface = pygame.Surface((GB_WIDTH, GB_HEIGHT))
+                    # Usar Surface temporal en lugar de self.surface
+                    render_surface = self._headless_surface
+                else:
+                    # Modo con ventana: usar self.surface normal
+                    if not hasattr(self, 'surface'):
+                        self.surface = pygame.Surface((GB_WIDTH, GB_HEIGHT))
+                    render_surface = self.surface
                 
                 # Etapa 2: blit_array
                 if should_profile:
                     stage_start = time.time() * 1000
                 
-                pygame.surfarray.blit_array(self.surface, rgb_array_swapped)
+                # --- Step 0496: Usar render_surface (headless o normal) ---
+                pygame.surfarray.blit_array(render_surface, rgb_array_swapped)
                 
                 if should_profile:
                     blit_ms = (time.time() * 1000) - stage_start
@@ -833,8 +863,9 @@ class Renderer:
                                 y = min(y_step, GB_HEIGHT - 1)
                                 sample_positions.append((x, y))
                         
+                        # --- Step 0496: Usar render_surface (headless o normal) ---
                         for x, y in sample_positions:
-                            pixel = self.surface.get_at((x, y))
+                            pixel = render_surface.get_at((x, y))
                             r, g, b = pixel[0], pixel[1], pixel[2]
                             if r < 200 or g < 200 or b < 200:
                                 nonwhite_after += 1
@@ -850,7 +881,8 @@ class Renderer:
                             logger.warning(f"[UI-DEBUG] ⚠️ Pérdida significativa de nonwhite: {nonwhite_sample} → {nonwhite_after_total}")
                         
                         # Step 0454: Calcular métricas robustas después del blit
-                        metrics_after = self._calculate_unique_rgb_count_surface(self.surface, grid_size=16)
+                        # --- Step 0496: Usar render_surface (headless o normal) ---
+                        metrics_after = self._calculate_unique_rgb_count_surface(render_surface, grid_size=16)
                         
                         print(f"[UI-ROBUST-METRICS] Frame {self._path_log_count} | "
                               f"unique_rgb_after_blit={metrics_after['unique_rgb_count']} | "
@@ -862,21 +894,23 @@ class Renderer:
                 if should_profile:
                     stage_start = time.time() * 1000
                 
-                # --- Step 0446: Usar pygame.SCALED (escalado automático por SDL) ---
-                # Si usamos SCALED, no necesitamos escalado manual
-                if hasattr(self, '_use_scaled') and self._use_scaled:
-                    # Blit directo a screen (SDL escala automáticamente)
-                    self.screen.blit(self.surface, (0, 0))
-                else:
-                    # Fallback: escalado manual (para Pygame < 2.0)
-                    if self.scale != 1:
-                        scaled_surface = pygame.transform.scale(
-                            self.surface,
-                            (self.window_width, self.window_height)
-                        )
-                        self.screen.blit(scaled_surface, (0, 0))
+                # --- Step 0496: Modo headless - solo blit si hay screen ---
+                if not is_headless:
+                    # --- Step 0446: Usar pygame.SCALED (escalado automático por SDL) ---
+                    # Si usamos SCALED, no necesitamos escalado manual
+                    if hasattr(self, '_use_scaled') and self._use_scaled:
+                        # Blit directo a screen (SDL escala automáticamente)
+                        self.screen.blit(render_surface, (0, 0))
                     else:
-                        self.screen.blit(self.surface, (0, 0))
+                        # Fallback: escalado manual (para Pygame < 2.0)
+                        if self.scale != 1:
+                            scaled_surface = pygame.transform.scale(
+                                render_surface,
+                                (self.window_width, self.window_height)
+                            )
+                            self.screen.blit(scaled_surface, (0, 0))
+                        else:
+                            self.screen.blit(render_surface, (0, 0))
                 
                 if should_profile:
                     scale_blit_ms = (time.time() * 1000) - stage_start
@@ -893,9 +927,9 @@ class Renderer:
                         import zlib
                         import numpy as np
                         
-                        # Capturar buffer exacto que se pasa a SDL (self.surface)
-                        # self.surface es 160x144 en RGB
-                        present_buffer = pygame.surfarray.array3d(self.surface)  # (160, 144, 3)
+                        # --- Step 0496: Capturar buffer exacto que se pasa a SDL (render_surface)
+                        # render_surface es 160x144 en RGB (puede ser headless o normal)
+                        present_buffer = pygame.surfarray.array3d(render_surface)  # (160, 144, 3)
                         present_buffer_flat = present_buffer.flatten()  # (160*144*3,)
                         present_buffer_bytes = present_buffer_flat.tobytes()
                         
@@ -918,21 +952,21 @@ class Renderer:
                               f"CRC32=0x{present_crc32:08X} | NonWhite={present_nonwhite} | "
                               f"W={present_w} H={present_h} Pitch={present_pitch} Format={present_fmt}")
                         
-                        # Step 0491: Dump a PPM si está activo
-                        dump_frame = int(os.environ.get('VIBOY_DUMP_RGB_FRAME', '0'))
-                        if dump_frame > 0 and frame_number == dump_frame:
-                            dump_path = os.environ.get('VIBOY_DUMP_RGB_PATH', '/tmp/viboy_present_f####.ppm')
-                            dump_path = dump_path.replace('####', str(frame_number))
+                        # --- Step 0496: Dump separado para FB_PRESENT (VIBOY_DUMP_PRESENT_FRAME) ---
+                        dump_present_frame = int(os.environ.get('VIBOY_DUMP_PRESENT_FRAME', '0'))
+                        if dump_present_frame > 0 and frame_number == dump_present_frame:
+                            dump_present_path = os.environ.get('VIBOY_DUMP_PRESENT_PATH', '/tmp/viboy_present_f####.ppm')
+                            dump_present_path = dump_present_path.replace('####', str(frame_number))
                             
                             # Convertir a formato PPM (P6 = binary RGB)
                             # present_buffer_bytes ya está en formato RGB888 (R,G,B,R,G,B,...)
-                            with open(dump_path, 'wb') as f:
+                            with open(dump_present_path, 'wb') as f:
                                 f.write(b"P6\n")
                                 f.write(f"{present_w} {present_h}\n".encode())
                                 f.write(b"255\n")
                                 f.write(present_buffer_bytes)
                             
-                            print(f"[FB_PRESENT_SRC] Dump guardado en {dump_path}")
+                            print(f"[FB_PRESENT_SRC] Dump guardado en {dump_present_path}")
                         
                         # Actualizar stats en PPU (si está disponible)
                         if self.cpp_ppu is not None:
@@ -954,7 +988,9 @@ class Renderer:
                         logger.warning(f"[Renderer-Present-Stats] Error capturando present stats: {e}")
                 # -------------------------------------------
                 
-                pygame.display.flip()
+                # --- Step 0496: Solo hacer flip si no estamos en modo headless ---
+                if not is_headless:
+                    pygame.display.flip()
                 
                 if should_profile:
                     flip_ms = (time.time() * 1000) - stage_start

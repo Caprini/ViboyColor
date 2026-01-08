@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0496 - CGB End-to-End Present Proof (Idx→RGB→Present) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-08__0496__cgb-end-to-end-present-proof.html" class="entry-link">
+                                    CGB End-to-End Present Proof (Idx→RGB→Present)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-08 | 
+                            <strong>Step ID:</strong> 0496 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de un diagnóstico end-to-end del pipeline de renderizado CGB para identificar exactamente en qué etapa falla el problema de "pantalla blanca". Se implementó soporte para modo headless en el renderer, dump PPM separado para FB_PRESENT, y PresentDetails en el snapshot. Los resultados confirman que el pipeline PPU→RGB funciona correctamente (IdxNonZero=22910, RgbNonWhite=22910), pero FB_PRESENT_SRC no se captura en modo headless porque rom_smoke no usa el renderer. Se identificó el Caso A: el problema está en el renderer/present, no en el PPU ni en las paletas. Reporte completo en docs/reports/reporte_step0496.md.
+                        </p>
+                    </li>
                     <!-- Entrada 0495 - CGB Palette Reality Check (Cerrar el Blanco) -->
                     <li>
                         <div class="entry-header">

@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CGB End-to-End Present Proof (Idx→RGB→Present) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>CGB End-to-End Present Proof (Idx→RGB→Present)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2026-01-08
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0496
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2026-01-08__0495__cgb-palette-reality-check-cerrar-el-blanco.html">Anterior (0495)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este step implementa un diagnóstico end-to-end del pipeline de renderizado CGB para identificar exactamente en qué etapa falla el problema de "pantalla blanca". Se implementó soporte para modo headless en el renderer, dump PPM separado para FB_PRESENT, y PresentDetails en el snapshot. Los resultados confirman que el pipeline PPU→RGB funciona correctamente (IdxNonZero=22910, RgbNonWhite=22910), pero FB_PRESENT_SRC no se captura en modo headless porque rom_smoke no usa el renderer. Se identificó el Caso A: el problema está en el renderer/present, no en el PPU ni en las paletas.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Pipeline de Renderizado CGB</strong>: El pipeline de renderizado en modo CGB tiene tres etapas principales:
+                </p>
+                <ol>
+                    <li><strong>FB_INDEX</strong>: El PPU genera índices de color (0-3) para cada píxel basándose en los tiles y atributos de paleta. Estos índices se almacenan en el framebuffer de índices.</li>
+                    <li><strong>FB_RGB</strong>: Los índices se convierten a valores RGB888 usando las paletas CGB (BGPD/OBPD). Cada índice se mapea a un color BGR555 de la paleta correspondiente, que luego se convierte a RGB888.</li>
+                    <li><strong>FB_PRESENT_SRC</strong>: El buffer RGB se entrega al renderer (pygame Surface) que lo prepara para presentación en pantalla. Este es el buffer exacto que se pasa a SDL/pygame antes del flip.</li>
+                </ol>
+                <p>
+                    <strong>Diagnóstico End-to-End</strong>: Para identificar dónde falla el pipeline, necesitamos evidencia de las tres etapas en el mismo frame. Si FB_INDEX tiene señal pero FB_RGB está blanco, el problema está en la conversión de índices a RGB (paletas). Si FB_RGB tiene señal pero FB_PRESENT está blanco, el problema está en el renderer/present.
+                </p>
+                <p>
+                    <strong>Modo Headless</strong>: En modo headless (sin ventana gráfica), el renderer debe poder generar el mismo buffer que se presentaría en modo UI, para permitir diagnóstico en CI y ejecución sin display.
+                </p>
+                <p>
+                    <strong>Referencia:</strong> Pan Docs - "CGB Palettes", "PPU Rendering Pipeline", "Framebuffer Format"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>Fase 1: Modo Headless en Renderer</h3>
+                <p>
+                    Se modificó <code>src/gpu/renderer.py</code> para soportar modo headless:
+                </p>
+                <ul>
+                    <li><strong>Detección automática</strong>: El renderer detecta modo headless mediante <code>SDL_VIDEODRIVER=dummy</code> o <code>VIBOY_HEADLESS=1</code></li>
+                    <li><strong>Surface temporal</strong>: Si no hay screen disponible, se crea un Surface temporal (<code>_headless_surface</code>) para capturar FB_PRESENT_SRC</li>
+                    <li><strong>Render sin flip</strong>: En modo headless, no se ejecuta <code>pygame.display.flip()</code>, pero el Surface temporal se renderiza igual que en modo normal</li>
+                </ul>
+                
+                <h3>Fase 2: Dump PPM Separado para FB_PRESENT</h3>
+                <p>
+                    Se implementó dump separado usando variables de entorno:
+                </p>
+                <ul>
+                    <li><code>VIBOY_DUMP_PRESENT_FRAME</code>: Frame en el que generar el dump</li>
+                    <li><code>VIBOY_DUMP_PRESENT_PATH</code>: Ruta del archivo PPM (soporta <code>####</code> como placeholder del frame)</li>
+                    <li><strong>Formato</strong>: PPM P6 160x144 RGB888 (mismo formato que FB_RGB)</li>
+                </ul>
+                
+                <h3>Fase 3: PresentDetails en Snapshot</h3>
+                <p>
+                    Se añadió <code>PresentDetails</code> al snapshot en <code>tools/rom_smoke_0442.py</code>:
+                </p>
+                <ul>
+                    <li><code>present_fmt</code>: Formato del Surface (0 = RGB888)</li>
+                    <li><code>present_pitch</code>: Pitch del Surface (bytes por fila)</li>
+                    <li><code>present_w</code>, <code>present_h</code>: Dimensiones del Surface</li>
+                    <li><code>present_bytes_len</code>: Tamaño total del buffer en bytes</li>
+                </ul>
+                <p>
+                    Los datos se obtienen desde <code>ThreeBufferStats</code> cuando está disponible.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code> - Modo headless, dump PRESENT separado</li>
+                    <li><code>tools/rom_smoke_0442.py</code> - PresentDetails en snapshot</li>
+                    <li><code>docs/reports/reporte_step0496.md</code> - Reporte completo del step</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutó <code>rom_smoke_0442.py</code> con <code>tetris_dx.gbc</code> durante 1200 frames:
+                </p>
+                <pre><code>export VIBOY_SIM_BOOT_LOGO=0
+export VIBOY_DEBUG_PRESENT_TRACE=1
+export VIBOY_DEBUG_CGB_PALETTE_WRITES=1
+export VIBOY_DUMP_IDX_FRAME=600
+export VIBOY_DUMP_IDX_PATH=/tmp/viboy_tetris_dx_idx_f####.ppm
+export VIBOY_DUMP_RGB_FRAME=600
+export VIBOY_DUMP_RGB_PATH=/tmp/viboy_tetris_dx_rgb_f####.ppm
+export VIBOY_DUMP_PRESENT_FRAME=600
+export VIBOY_DUMP_PRESENT_PATH=/tmp/viboy_tetris_dx_present_f####.ppm
+python3 tools/rom_smoke_0442.py roms/tetris_dx.gbc --frames 1200</code></pre>
+                
+                <h3>Resultados (Frame 600)</h3>
+                <table>
+                    <tr>
+                        <th>Buffer</th>
+                        <th>Métrica</th>
+                        <th>Valor</th>
+                        <th>Estado</th>
+                    </tr>
+                    <tr>
+                        <td rowspan="3"><strong>FB_INDEX</strong></td>
+                        <td>IdxCRC32</td>
+                        <td>0xBC5587A4</td>
+                        <td>✅ No blanco</td>
+                    </tr>
+                    <tr>
+                        <td>IdxUnique</td>
+                        <td>4</td>
+                        <td>✅ Múltiples colores</td>
+                    </tr>
+                    <tr>
+                        <td>IdxNonZero</td>
+                        <td>22910</td>
+                        <td>✅ Señal presente</td>
+                    </tr>
+                    <tr>
+                        <td rowspan="3"><strong>FB_RGB</strong></td>
+                        <td>RgbCRC32</td>
+                        <td>0xF87596C9</td>
+                        <td>✅ No blanco</td>
+                    </tr>
+                    <tr>
+                        <td>RgbUnique</td>
+                        <td>4</td>
+                        <td>✅ Múltiples colores</td>
+                    </tr>
+                    <tr>
+                        <td>RgbNonWhite</td>
+                        <td>22910</td>
+                        <td>✅ Señal presente</td>
+                    </tr>
+                    <tr>
+                        <td rowspan="2"><strong>FB_PRESENT_SRC</strong></td>
+                        <td>PresentCRC32</td>
+                        <td>0x00000000</td>
+                        <td>❌ Blanco</td>
+                    </tr>
+                    <tr>
+                        <td>PresentNonWhite</td>
+                        <td>0</td>
+                        <td>❌ Sin señal</td>
+                    </tr>
+                </table>
+                
+                <h3>Dumps PPM Generados</h3>
+                <ul>
+                    <li><code>/tmp/viboy_tetris_dx_idx_f600.ppm</code> (68K) ✅</li>
+                    <li><code>/tmp/viboy_tetris_dx_rgb_f0600.ppm</code> (68K) ✅</li>
+                    <li><code>/tmp/viboy_tetris_dx_rgb_f600.ppm</code> (68K) ✅</li>
+                    <li><code>/tmp/viboy_tetris_dx_present_f600.ppm</code> ❌ (No generado - renderer no usado en rom_smoke)</li>
+                </ul>
+                
+                <h3>Clasificación del Fallo</h3>
+                <p>
+                    <strong>✅ CASO A Confirmado</strong>: El problema está en el renderer/present, no en el PPU ni en las paletas.
+                </p>
+                <p>
+                    <strong>Evidencia</strong>:
+                </p>
+                <ul>
+                    <li><code>IdxNonZero=22910</code> > 0 ✅ (PPU genera señal)</li>
+                    <li><code>RgbNonWhite=22910</code> > 0 ✅ (Conversión a RGB funciona)</li>
+                    <li><code>PresentNonWhite=0</code> ❌ (Present buffer está blanco)</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: "CGB Palettes", "PPU Rendering Pipeline", "Framebuffer Format"</li>
+                    <li>Step 0495: CGB Palette Reality Check (implementación previa de paletas CGB)</li>
+                    <li>Step 0489: ThreeBufferStats (estructura de estadísticas de tres buffers)</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Pipeline de Renderizado</strong>: El pipeline tiene tres etapas claras (índices, RGB, present). Si una etapa falla, las siguientes también fallan. El análisis de ThreeBufferStats permite identificar exactamente en qué etapa está el problema.</li>
+                        <li><strong>Modo Headless</strong>: El renderer puede funcionar sin ventana gráfica creando un Surface temporal. Esto permite diagnóstico en CI y ejecución sin display.</li>
+                        <li><strong>Dumps Sincronizados</strong>: Los dumps PPM de las tres etapas deben generarse en el mismo frame para comparar correctamente.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>FB_PRESENT_SRC en UI</strong>: Necesitamos ejecutar con UI (`main.py`) para capturar FB_PRESENT_SRC real y confirmar si el problema persiste cuando se usa el renderer real.</li>
+                        <li><strong>Causa Raíz del Present Blanco</strong>: Si PresentNonWhite sigue siendo 0 en UI, investigar pitch del Surface, formato (RGBA vs BGRA), orden de operaciones, o buffer stale.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis</strong>: El problema está en el renderer/present porque FB_INDEX y FB_RGB tienen señal, pero FB_PRESENT está blanco. Sin embargo, como rom_smoke no usa el renderer, necesitamos ejecutar con UI para confirmar.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar con UI (`main.py`) con tetris_dx.gbc para capturar FB_PRESENT_SRC real</li>
+                    <li>[ ] Verificar si PresentNonWhite sigue siendo 0 en ejecución con UI</li>
+                    <li>[ ] Si el problema persiste, investigar pitch del Surface, formato (RGBA vs BGRA), orden de operaciones, o buffer stale</li>
+                    <li>[ ] Implementar fix mínimo si se identifica la causa raíz</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>

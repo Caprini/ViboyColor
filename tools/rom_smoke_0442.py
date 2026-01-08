@@ -2002,6 +2002,7 @@ class ROMSmokeRunner:
                 # Step 0489: ThreeBufferStats (gateado por VIBOY_DEBUG_PRESENT_TRACE=1)
                 three_buf_stats = None
                 three_buf_stats_str = "N/A"
+                present_details = {}  # Step 0496: PresentDetails
                 if os.getenv("VIBOY_DEBUG_PRESENT_TRACE") == "1":
                     try:
                         three_buf_stats = self.ppu.get_three_buffer_stats()
@@ -2014,8 +2015,18 @@ class ROMSmokeRunner:
                                                    f"RgbNonWhite={three_buf_stats['rgb_nonwhite_count']} | "
                                                    f"PresentCRC32=0x{three_buf_stats['present_crc32']:08X} "
                                                    f"PresentNonWhite={three_buf_stats['present_nonwhite_count']}")
+                            
+                            # --- Step 0496: PresentDetails desde ThreeBufferStats ---
+                            present_details = {
+                                'present_fmt': three_buf_stats.get('present_fmt', 0),
+                                'present_pitch': three_buf_stats.get('present_pitch', 0),
+                                'present_w': three_buf_stats.get('present_w', 0),
+                                'present_h': three_buf_stats.get('present_h', 0),
+                                'present_bytes_len': three_buf_stats.get('present_w', 0) * three_buf_stats.get('present_h', 0) * 3,  # RGB888
+                            }
                     except (AttributeError, TypeError, KeyError) as e:
                         three_buf_stats_str = f"ERROR: {e}"
+                        present_details = {'error': str(e)}
                 
                 # Step 0489: CGBPaletteWriteStats (gateado por VIBOY_DEBUG_CGB_PALETTE_WRITES=1)
                 # Step 0494: Reforzado con decode de palette0[0..3] y nonwhite entries
@@ -2504,7 +2515,8 @@ class ROMSmokeRunner:
                       f"{io_watch_str} | "  # Step 0495: IOWatchFF68FF6B
                       f"{cgb_palette_ram_str} | "  # Step 0495: CGBPaletteRAM
                       f"{pixel_proof_str} | "  # Step 0495: PixelProof
-                      f"{irq_reality_str}")
+                      f"{irq_reality_str} | "  # Step 0494: IRQReality
+                      f"PresentDetails=fmt={present_details.get('present_fmt', 0)} pitch={present_details.get('present_pitch', 0)} w={present_details.get('present_w', 0)} h={present_details.get('present_h', 0)} bytes_len={present_details.get('present_bytes_len', 0)}")  # Step 0496: PresentDetails
                 
                 # --- Step 0493: AfterClear section reforzada ---
                 if vram_write_stats and vram_write_stats.get('tiledata_clear_done_frame', 0) > 0:
