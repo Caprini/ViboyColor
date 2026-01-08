@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0495 - CGB Palette Reality Check (Cerrar el Blanco) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-08__0495__cgb-palette-reality-check-cerrar-el-blanco.html" class="entry-link">
+                                    CGB Palette Reality Check (Cerrar el Blanco)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-08 | 
+                            <strong>Step ID:</strong> 0495 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de un diagnóstico completo del problema de "pantalla blanca" en modo CGB (tetris_dx.gbc). Se implementaron herramientas de diagnóstico (CGB Detection, IO Watch para FF68-FF6B, dump de paletas CGB, Pixel Proof) que permitieron identificar que el problema estaba en PPU::convert_framebuffer_to_rgb(), que siempre usaba modo DMG incluso cuando el hardware era CGB. El fix aplicado permite que el código use correctamente las paletas CGB cuando está en modo CGB, resolviendo el problema del blanco. Resultado final: PixelProof muestra píxeles con RGB no blancos (rgb(0,0,0) y rgb(197,197,197)), confirmando que el fix funciona correctamente. Reporte completo en docs/reports/reporte_step0495.md.
+                        </p>
+                    </li>
                     <!-- Entrada 0494 - IRQ Reality Check + CGB Palette Proof -->
                     <li>
                         <div class="entry-header">

@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CGB Palette Reality Check (Cerrar el Blanco) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>CGB Palette Reality Check (Cerrar el Blanco)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2026-01-08
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0495
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2026-01-08__0494__irq-reality-check-cgb-palette-proof.html">Anterior (0494)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este step implementa un diagnóstico completo del problema de "pantalla blanca" en modo CGB (`tetris_dx.gbc`). Se implementaron herramientas de diagnóstico (CGB Detection, IO Watch para FF68-FF6B, dump de paletas CGB, Pixel Proof) que permitieron identificar que el problema estaba en `PPU::convert_framebuffer_to_rgb()`, que siempre usaba modo DMG incluso cuando el hardware era CGB. El fix aplicado permite que el código use correctamente las paletas CGB cuando está en modo CGB, resolviendo el problema del blanco.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Detección de Modo CGB</strong>: El Game Boy Color puede operar en dos modos: modo CGB nativo (usando paletas CGB) y modo compatibilidad DMG (usando paletas DMG incluso en hardware CGB). El modo se determina por el byte 0x0143 del header ROM (0x80 o 0xC0 = CGB) y por el bit 0 de LCDC (0xFF40): si LCDC bit 0 = 0 (LCD OFF), el hardware opera en modo compatibilidad DMG.
+                </p>
+                <p>
+                    <strong>Paletas CGB</strong>: En modo CGB, las paletas se configuran escribiendo a BGPI/OBPI (Palette Index, 0xFF68/0xFF6A) y luego a BGPD/OBPD (Palette Data, 0xFF69/0xFF6B). Cada paleta tiene 4 colores, cada color es 2 bytes en formato BGR555 (bits 0-4 = Blue, 5-9 = Green, 10-14 = Red). Hay 8 paletas BG y 8 paletas OBJ, cada una con 4 colores = 64 bytes total por tipo.
+                </p>
+                <p>
+                    <strong>Conversión BGR555→RGB888</strong>: Los colores CGB están en formato BGR555 (15 bits: 5 bits por componente). Para convertir a RGB888 (24 bits: 8 bits por componente), se extraen los componentes BGR555 y se escalan: `r8 = (r5 * 255) / 31`.
+                </p>
+                <p>
+                    <strong>Referencia:</strong> Pan Docs - "CGB Palettes", "CGB Registers", "LCDC (0xFF40)", "BGR555 Format"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>Fase A: CGB Detection</h3>
+                <h4>A1-A2: Getters en MMU</h4>
+                <p>
+                    Se implementó en <code>MMU.hpp/MMU.cpp</code>:
+                </p>
+                <ul>
+                    <li><code>rom_header_cgb_flag_</code>: Miembro que almacena el byte 0x0143 del header ROM</li>
+                    <li><code>get_rom_header_cgb_flag()</code>: Getter que retorna el flag CGB del header ROM</li>
+                    <li><code>get_dmg_compat_mode()</code>: Getter que retorna <code>true</code> si LCDC bit 0 = 0 (modo compatibilidad DMG dentro de CGB)</li>
+                </ul>
+                
+                <h4>A3: Exposición Cython</h4>
+                <p>
+                    Se expusieron los getters en <code>mmu.pyx</code>:
+                </p>
+                <ul>
+                    <li><code>get_rom_header_cgb_flag()</code>: Retorna el flag CGB del header ROM</li>
+                    <li><code>get_dmg_compat_mode()</code>: Retorna boolean indicando si está en modo compatibilidad DMG</li>
+                    <li><code>get_hardware_mode()</code>: Ya existía, retorna "CGB" o "DMG"</li>
+                </ul>
+                
+                <h4>A4: Sección CGBDetection en Snapshot</h4>
+                <p>
+                    Se añadió sección <code>CGBDetection</code> en <code>rom_smoke_0442.py</code>:
+                </p>
+                <ul>
+                    <li><code>rom_header_cgb_flag</code>: Byte 0x0143 del header ROM</li>
+                    <li><code>machine_is_cgb</code>: Flag interno del emulador (1 = CGB, 0 = DMG)</li>
+                    <li><code>dmg_compat_mode</code>: Modo compatibilidad DMG dentro de CGB</li>
+                </ul>
+                
+                <h3>Fase B: IO Watch para FF68-FF6B</h3>
+                <h4>B1: Estructura IOWatchFF68FF6B</h4>
+                <p>
+                    Se implementó en <code>MMU.hpp</code>:
+                </p>
+                <ul>
+                    <li>Tracking de writes/reads a FF68 (BGPI/BCPS), FF69 (BGPD/BCPD), FF6A (OBPI/OCPS), FF6B (OBPD/OCPD)</li>
+                    <li>Para cada registro: contadores de write/read, último PC, último valor</li>
+                </ul>
+                
+                <h4>B2: Tracking en MMU</h4>
+                <p>
+                    Se implementó tracking en <code>MMU::write()</code> y <code>MMU::read()</code>:
+                </p>
+                <ul>
+                    <li>Incrementa contadores y almacena último PC/valor para cada acceso a FF68-FF6B</li>
+                    <li>Siempre activo (no gateado por variables de entorno)</li>
+                </ul>
+                
+                <h4>B3: Exposición Cython y Snapshot</h4>
+                <p>
+                    Se expuso el getter en <code>mmu.pyx</code> y se añadió sección <code>IOWatchFF68FF6B</code> en snapshot.
+                </p>
+                
+                <h3>Fase C: Dump Compacto de RAM de Paletas</h3>
+                <h4>C1: Sección CGBPaletteRAM en Snapshot</h4>
+                <p>
+                    Se añadió sección <code>CGBPaletteRAM</code> en <code>rom_smoke_0442.py</code>:
+                </p>
+                <ul>
+                    <li><code>bg_palette_bytes_hex</code>: Hex dump de 64 bytes de paleta BG</li>
+                    <li><code>obj_palette_bytes_hex</code>: Hex dump de 64 bytes de paleta OBJ</li>
+                    <li><code>bg_palette_nonwhite_entries</code>: Contador de entradas no blancas en paleta BG</li>
+                    <li><code>obj_palette_nonwhite_entries</code>: Contador de entradas no blancas en paleta OBJ</li>
+                </ul>
+                
+                <h3>Fase D: Pixel Proof</h3>
+                <h4>D1: Sección PixelProof en Snapshot</h4>
+                <p>
+                    Se añadió sección <code>PixelProof</code> en <code>rom_smoke_0442.py</code>:
+                </p>
+                <ul>
+                    <li>Muestra hasta 5 píxeles no blancos del framebuffer RGB</li>
+                    <li>Para cada píxel: coordenadas (x, y), índice de color (idx), paleta usada (BG/OBJ), color BGR555 raw, color RGB888 final</li>
+                </ul>
+                
+                <h3>Fase E: Fix Mínimo</h3>
+                <h4>E1: Problema Identificado</h4>
+                <p>
+                    En <code>PPU::convert_framebuffer_to_rgb()</code>, línea 5613:
+                </p>
+                <pre><code>bool is_dmg = true;  // ❌ Siempre DMG, incluso en CGB</code></pre>
+                <p>
+                    Esto forzaba siempre el uso de paletas DMG (BGP/OBP0/OBP1), que en `tetris_dx.gbc` se pone en 0x00 (todo blanco), en lugar de usar las paletas CGB que tienen datos válidos.
+                </p>
+                
+                <h4>E2: Fix Aplicado</h4>
+                <p>
+                    Se implementó detección correcta de modo CGB:
+                </p>
+                <pre><code>HardwareMode hw_mode = mmu_->get_hardware_mode();
+bool is_dmg = (hw_mode == HardwareMode::DMG);
+
+// Si estamos en CGB pero en modo compatibilidad DMG (LCDC bit 0 = 0), usar BGP
+if (!is_dmg && mmu_->get_dmg_compat_mode()) {
+    is_dmg = true;  // Usar paletas DMG aunque sea hardware CGB
+}</code></pre>
+                <p>
+                    También se corrigió la conversión BGR555→RGB888 (extracción correcta de componentes B, G, R).
+                </p>
+                
+                <h3>Fase F: Validación</h3>
+                <h4>F1: Ejecución y Resultados</h4>
+                <p>
+                    Se ejecutó <code>tetris_dx.gbc</code> por 600 frames y se verificó que el fix funciona:
+                </p>
+                <ul>
+                    <li><code>fb_nonzero=22910</code> ✅ (hay índices no cero)</li>
+                    <li><code>PixelProof</code> muestra píxeles con RGB no blancos: <code>rgb(0,0,0)</code> y <code>rgb(197,197,197)</code> ✅</li>
+                    <li><code>CGBDetection_MachineIsCGB=1</code> ✅ (emulador detecta CGB correctamente)</li>
+                    <li><code>CGBPaletteRAM_BG_NonWhite=24</code> ✅ (paletas CGB tienen datos)</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/MMU.hpp</code> - Estructura IOWatchFF68FF6B, miembro rom_header_cgb_flag_, getters</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Implementación de tracking FF68-FF6B, getters CGB detection</li>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Fix en convert_framebuffer_to_rgb() para detectar modo CGB</li>
+                    <li><code>src/core/cython/mmu.pxd</code> - Declaraciones de estructuras y getters</li>
+                    <li><code>src/core/cython/mmu.pyx</code> - Exposición de getters a Python</li>
+                    <li><code>tools/rom_smoke_0442.py</code> - Secciones CGBDetection, IOWatchFF68FF6B, CGBPaletteRAM, PixelProof en snapshot</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Comando ejecutado:</strong>
+                </p>
+                <pre><code>PYTHONPATH=. python3 tools/rom_smoke_0442.py roms/tetris_dx.gbc --frames 600</code></pre>
+                <p>
+                    <strong>Resultados (Frame 600):</strong>
+                </p>
+                <ul>
+                    <li><code>CGBDetection_MachineIsCGB=1</code> ✅ (emulador detecta CGB)</li>
+                    <li><code>CGBPaletteRAM_BG_NonWhite=24</code> ✅ (paletas CGB tienen datos)</li>
+                    <li><code>fb_nonzero=22910</code> ✅ (framebuffer tiene índices no cero)</li>
+                    <li><code>PixelProof_P0_(0,0)_idx3_palBG_15b0x0000_rgb(0,0,0)_P1_(1,0)_idx1_palBG_15b0x6318_rgb(197,197,197)</code> ✅ (hay píxeles RGB no blancos)</li>
+                </ul>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong>
+                </p>
+                <pre><code># El código C++ se compiló correctamente con:
+python3 setup.py build_ext --inplace
+
+# Los getters Cython funcionan correctamente:
+from viboy_core import PyMMU
+mmu = PyMMU()
+cgb_flag = mmu.get_rom_header_cgb_flag()  # ✅ Funciona
+dmg_compat = mmu.get_dmg_compat_mode()   # ✅ Funciona
+io_watch = mmu.get_io_watch_ff68_ff6b()  # ✅ Funciona</code></pre>
+            </section>
+
+            <!-- 6. Conclusión -->
+            <section id="conclusion">
+                <h2>Conclusión</h2>
+                <p>
+                    El problema del "blanco" en modo CGB estaba causado por que <code>PPU::convert_framebuffer_to_rgb()</code> siempre usaba modo DMG, forzando el uso de BGP (que el juego pone en 0x00 = blanco) en lugar de usar las paletas CGB que tienen datos válidos. El fix permite que el código detecte correctamente el modo CGB y use las paletas CGB cuando corresponde, resolviendo el problema.
+                </p>
+                <p>
+                    <strong>Resultado Final</strong>: El framebuffer RGB ahora tiene colores no blancos (<code>PixelProof</code> muestra rgb(0,0,0) y rgb(197,197,197)), confirmando que el fix funciona correctamente.
+                </p>
+            </section>
+
+            <!-- 7. Referencias -->
+            <section id="referencias">
+                <h2>Referencias</h2>
+                <ul>
+                    <li>Plan: <code>step_0495_-_cgb_palette_reality_check_(cerrar_el_blanco)_e693ca2d.plan.md</code></li>
+                    <li>Reporte: <code>docs/reports/reporte_step0495.md</code></li>
+                    <li>Pan Docs: "CGB Palettes", "CGB Registers", "LCDC (0xFF40)", "BGR555 Format"</li>
+                    <li>GBEDG: "CGB Palette System"</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p>Viboy Color - Proyecto Educativo Open Source</p>
+        </footer>
+    </div>
+</body>
+</html>

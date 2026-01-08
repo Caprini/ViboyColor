@@ -74,6 +74,37 @@ cdef extern from "MMU.hpp":
         uint32_t write_count
         uint32_t first_write_frame
     
+    # Step 0495: Estructura IOWatchFF68FF6B (definida fuera de la clase MMU)
+    cdef struct IOWatchFF68FF6B:
+        # FF68 (BGPI/BCPS)
+        uint32_t bgpi_write_count
+        uint16_t bgpi_last_write_pc
+        uint8_t bgpi_last_write_value
+        uint32_t bgpi_read_count
+        uint16_t bgpi_last_read_pc
+        uint8_t bgpi_last_read_value
+        # FF69 (BGPD/BCPD)
+        uint32_t bgpd_write_count
+        uint16_t bgpd_last_write_pc
+        uint8_t bgpd_last_write_value
+        uint32_t bgpd_read_count
+        uint16_t bgpd_last_read_pc
+        uint8_t bgpd_last_read_value
+        # FF6A (OBPI/OCPS)
+        uint32_t obpi_write_count
+        uint16_t obpi_last_write_pc
+        uint8_t obpi_last_write_value
+        uint32_t obpi_read_count
+        uint16_t obpi_last_read_pc
+        uint8_t obpi_last_read_value
+        # FF6B (OBPD/OCPD)
+        uint32_t obpd_write_count
+        uint16_t obpd_last_write_pc
+        uint8_t obpd_last_write_value
+        uint32_t obpd_read_count
+        uint16_t obpd_last_read_pc
+        uint8_t obpd_last_read_value
+    
     # Step 0490: Estructura VRAMWriteStats (definida fuera de la clase MMU)
     # Step 0491: Ampliada para separar attempts vs nonzero writes + bank + VBK
     # Step 0492: Ampliada con tracking de Clear VRAM
@@ -139,6 +170,8 @@ cdef extern from "MMU.hpp":
         void enable_bootrom_stub(bool enable, bool cgb_mode)  # Step 0402
         void set_hardware_mode(HardwareMode mode)  # Step 0404
         HardwareMode get_hardware_mode()  # Step 0404
+        int get_dmg_compat_mode() const  # Step 0495 (devuelve int para evitar problemas de conversión en Cython)
+        uint8_t get_rom_header_cgb_flag() const  # Step 0495
         void initialize_io_registers()  # Step 0404
         void log_dma_vram_summary()  # Step 0410
         # Step 0425: Eliminado set_test_mode_allow_rom_writes() (hack no spec-correct)
@@ -258,6 +291,8 @@ cdef extern from "MMU.hpp":
         # Step 0494: IF/IE y HRAM[0xFFC5] Tracking
         IFIETracking get_if_ie_tracking() const
         HRAMFFC5Tracking get_hram_ffc5_tracking() const
+        # Step 0495: IO Watch para FF68-FF6B
+        IOWatchFF68FF6B get_io_watch_ff68_ff6b() const
         # Step 0494: Acceso directo a paletas CGB (para decode)
         uint8_t read_bg_palette_data(uint8_t index) const
         uint8_t read_obj_palette_data(uint8_t index) const

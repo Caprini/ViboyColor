@@ -5608,9 +5608,16 @@ void PPU::convert_framebuffer_to_rgb() {
         return;
     }
     
-    // Por ahora, asumir modo DMG (CGB path se implementará cuando sea necesario)
-    // TODO: Detectar modo CGB cuando se implemente soporte completo de CGB
-    bool is_dmg = true;
+    // Step 0495: Detectar modo CGB correctamente
+    // En modo CGB, usar paletas CGB (BGPD/OBPD) en lugar de BGP/OBP0/OBP1
+    // En modo DMG o modo compatibilidad DMG dentro de CGB, usar BGP/OBP0/OBP1
+    HardwareMode hw_mode = mmu_->get_hardware_mode();
+    bool is_dmg = (hw_mode == HardwareMode::DMG);
+    
+    // Si estamos en CGB pero en modo compatibilidad DMG (LCDC bit 0 = 0), usar BGP
+    if (!is_dmg && mmu_->get_dmg_compat_mode()) {
+        is_dmg = true;  // Usar paletas DMG aunque sea hardware CGB
+    }
     
     if (is_dmg) {
         // --- Modo DMG: el framebuffer contiene índices crudos (0-3) ---
@@ -5743,10 +5750,11 @@ void PPU::convert_framebuffer_to_rgb() {
                 // Obtener color CGB (BGR555) de la paleta correcta
                 uint16_t bgr555 = cgb_palettes[palette_id][color_index];
                 
-                // Extraer componentes BGR555
-                uint8_t r5 = (bgr555 >> 0) & 0x1F;
-                uint8_t g5 = (bgr555 >> 5) & 0x1F;
-                uint8_t b5 = (bgr555 >> 10) & 0x1F;
+                // Extraer componentes BGR555 (formato: bits 0-4 = Blue, 5-9 = Green, 10-14 = Red)
+                // Fuente: Pan Docs - CGB Palettes, BGR555 format
+                uint8_t b5 = (bgr555 >> 0) & 0x1F;   // Bits 0-4: Blue
+                uint8_t g5 = (bgr555 >> 5) & 0x1F;   // Bits 5-9: Green
+                uint8_t r5 = (bgr555 >> 10) & 0x1F;  // Bits 10-14: Red
                 
                 // Convertir a RGB888 (0-255 por canal)
                 uint8_t r8 = (r5 * 255) / 31;

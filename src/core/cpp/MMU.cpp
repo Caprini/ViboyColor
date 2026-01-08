@@ -89,6 +89,7 @@ MMU::MMU()
     , current_rom_bank_(1)
     , bank0_rom_(0)
     , bankN_rom_(1)
+    , rom_header_cgb_flag_(0x00)  // Step 0495: CGB flag del header ROM (0x00 = DMG por defecto)
     // Step 0425: Eliminado test_mode_allow_rom_writes_
     , mbc1_bank_low5_(1)
     , mbc1_bank_high2_(0)
@@ -870,24 +871,44 @@ uint8_t MMU::read(uint16_t addr) const {
     if (addr == 0xFF68) {
         // BCPS (BG Color Palette Specification)
         // Retorna: índice actual (bits 0-5) + autoincrement (bit 7) + bit 6 = 1
-        return bg_palette_index_ | 0x40;
+        uint8_t value = bg_palette_index_ | 0x40;
+        // Step 0495: Tracking duro de reads a FF68 (siempre activo)
+        io_watch_ff68_ff6b_.bgpi_read_count++;
+        io_watch_ff68_ff6b_.bgpi_last_read_pc = debug_current_pc;
+        io_watch_ff68_ff6b_.bgpi_last_read_value = value;
+        return value;
     }
     if (addr == 0xFF69) {
         // BCPD (BG Color Palette Data)
         // Retorna el byte actual de la paleta BG
         uint8_t index = bg_palette_index_ & 0x3F;
-        return bg_palette_data_[index];
+        uint8_t value = bg_palette_data_[index];
+        // Step 0495: Tracking duro de reads a FF69 (siempre activo)
+        io_watch_ff68_ff6b_.bgpd_read_count++;
+        io_watch_ff68_ff6b_.bgpd_last_read_pc = debug_current_pc;
+        io_watch_ff68_ff6b_.bgpd_last_read_value = value;
+        return value;
     }
     if (addr == 0xFF6A) {
         // OCPS (OBJ Color Palette Specification)
         // Retorna: índice actual (bits 0-5) + autoincrement (bit 7) + bit 6 = 1
-        return obj_palette_index_ | 0x40;
+        uint8_t value = obj_palette_index_ | 0x40;
+        // Step 0495: Tracking duro de reads a FF6A (siempre activo)
+        io_watch_ff68_ff6b_.obpi_read_count++;
+        io_watch_ff68_ff6b_.obpi_last_read_pc = debug_current_pc;
+        io_watch_ff68_ff6b_.obpi_last_read_value = value;
+        return value;
     }
     if (addr == 0xFF6B) {
         // OCPD (OBJ Color Palette Data)
         // Retorna el byte actual de la paleta OBJ
         uint8_t index = obj_palette_index_ & 0x3F;
-        return obj_palette_data_[index];
+        uint8_t value = obj_palette_data_[index];
+        // Step 0495: Tracking duro de reads a FF6B (siempre activo)
+        io_watch_ff68_ff6b_.obpd_read_count++;
+        io_watch_ff68_ff6b_.obpd_last_read_pc = debug_current_pc;
+        io_watch_ff68_ff6b_.obpd_last_read_value = value;
+        return value;
     }
     
     // --- RAM Externa (0xA000-0xBFFF) ---
@@ -3025,6 +3046,11 @@ void MMU::write(uint16_t addr, uint8_t value) {
         if (env_debug && std::string(env_debug) == "1") {
             cgb_palette_write_stats_.last_bgpi = value & 0x3F;
         }
+        
+        // Step 0495: Tracking duro de writes a FF68 (siempre activo)
+        io_watch_ff68_ff6b_.bgpi_write_count++;
+        io_watch_ff68_ff6b_.bgpi_last_write_pc = debug_current_pc;
+        io_watch_ff68_ff6b_.bgpi_last_write_value = value;
         return;
     }
     if (addr == 0xFF69) {
@@ -3047,6 +3073,11 @@ void MMU::write(uint16_t addr, uint8_t value) {
             cgb_palette_write_stats_.last_bgpd_value = value;
         }
         
+        // Step 0495: Tracking duro de writes a FF69 (siempre activo)
+        io_watch_ff68_ff6b_.bgpd_write_count++;
+        io_watch_ff68_ff6b_.bgpd_last_write_pc = debug_current_pc;
+        io_watch_ff68_ff6b_.bgpd_last_write_value = value;
+        
         // Auto-increment si bit 7 de BCPS está activo
         if (bg_palette_index_ & 0x80) {
             bg_palette_index_ = 0x80 | ((index + 1) & 0x3F);
@@ -3068,6 +3099,11 @@ void MMU::write(uint16_t addr, uint8_t value) {
         if (env_debug && std::string(env_debug) == "1") {
             cgb_palette_write_stats_.last_obpi = value & 0x3F;
         }
+        
+        // Step 0495: Tracking duro de writes a FF6A (siempre activo)
+        io_watch_ff68_ff6b_.obpi_write_count++;
+        io_watch_ff68_ff6b_.obpi_last_write_pc = debug_current_pc;
+        io_watch_ff68_ff6b_.obpi_last_write_value = value;
         return;
     }
     if (addr == 0xFF6B) {
@@ -3089,6 +3125,11 @@ void MMU::write(uint16_t addr, uint8_t value) {
             cgb_palette_write_stats_.last_obpd_write_pc = debug_current_pc;
             cgb_palette_write_stats_.last_obpd_value = value;
         }
+        
+        // Step 0495: Tracking duro de writes a FF6B (siempre activo)
+        io_watch_ff68_ff6b_.obpd_write_count++;
+        io_watch_ff68_ff6b_.obpd_last_write_pc = debug_current_pc;
+        io_watch_ff68_ff6b_.obpd_last_write_value = value;
         
         // Auto-increment si bit 7 de OCPS está activo
         if (obj_palette_index_ & 0x80) {
@@ -3523,6 +3564,9 @@ void MMU::load_rom(const uint8_t* data, size_t size) {
     uint8_t rom_size_code = (size > 0x0148) ? data[0x0148] : 0x00;
     uint8_t ram_size_code = (size > 0x0149) ? data[0x0149] : 0x00;
     uint8_t cgb_flag = (size > 0x0143) ? data[0x0143] : 0x00;
+    
+    // Step 0495: Almacenar CGB flag del header ROM
+    rom_header_cgb_flag_ = cgb_flag;
     
     // Extraer título de la ROM (0x0134-0x0143, sanitizado)
     char title[17] = {0};
@@ -4434,6 +4478,20 @@ HardwareMode MMU::get_hardware_mode() const {
     return hardware_mode_;
 }
 
+// --- Step 0495: Implementación de getters para detección CGB ---
+int MMU::get_dmg_compat_mode() const {
+    // En modo CGB, si LCDC bit 0 = 0 (LCD OFF), el hardware opera en modo
+    // compatibilidad DMG, usando paletas DMG en lugar de paletas CGB.
+    uint8_t lcdc = memory_[0xFF40];
+    return ((lcdc & 0x01) == 0) ? 1 : 0;  // LCD OFF = modo compatibilidad DMG
+}
+
+uint8_t MMU::get_rom_header_cgb_flag() const {
+    // Step 0495: Devolver el flag CGB almacenado del header ROM
+    return rom_header_cgb_flag_;
+}
+// --- Fin Step 0495 ---
+
 void MMU::initialize_io_registers() {
     // --- Step 0404: Inicialización de Registros de Hardware según Modo ---
     // --- Step 0491: Ajuste para estado post-boot DMG cuando VIBOY_SIM_BOOT_LOGO=0 ---
@@ -5180,6 +5238,10 @@ const IFIETracking& MMU::get_if_ie_tracking() const {
 
 const HRAMFFC5Tracking& MMU::get_hram_ffc5_tracking() const {
     return hram_ffc5_tracking_;
+}
+
+const IOWatchFF68FF6B& MMU::get_io_watch_ff68_ff6b() const {
+    return io_watch_ff68_ff6b_;
 }
 // --- Fin Step 0494 ---
 // --- Fin Step 0490 ---

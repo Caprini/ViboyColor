@@ -2218,6 +2218,187 @@ class ROMSmokeRunner:
                                    f"CGB_BG_NonWhite={palette_stats.get('cgb_bg_palette_nonwhite_entries', 0)} "
                                    f"CGB_OB_NonWhite={palette_stats.get('cgb_obj_palette_nonwhite_entries', 0)}")
                 
+                # --- Step 0495: CGBDetection section (Fase A) ---
+                cgb_detection = {}
+                try:
+                    # Obtener ROM header CGB flag (byte 0x0143)
+                    rom_header_cgb_flag = self.mmu.get_rom_header_cgb_flag() if hasattr(self.mmu, 'get_rom_header_cgb_flag') else None
+                    
+                    # Obtener machine_is_cgb (flag interno real del emulador)
+                    machine_is_cgb = 0
+                    if hasattr(self.mmu, 'get_hardware_mode'):
+                        hardware_mode = self.mmu.get_hardware_mode()
+                        machine_is_cgb = 1 if hardware_mode == "CGB" else 0
+                    
+                    # Obtener dmg_compat_mode (si está en modo compatibilidad DMG dentro de CGB)
+                    dmg_compat_mode = None
+                    if hasattr(self.mmu, 'get_dmg_compat_mode'):
+                        dmg_compat_mode = self.mmu.get_dmg_compat_mode()
+                    
+                    cgb_detection = {
+                        'rom_header_cgb_flag': rom_header_cgb_flag,  # Byte 0x0143
+                        'machine_is_cgb': machine_is_cgb,  # Flag interno real
+                        'boot_mode': None,  # Si existe (por ahora None)
+                        'dmg_compat_mode': dmg_compat_mode,  # Si está en modo compatibilidad DMG
+                    }
+                except (AttributeError, TypeError, KeyError) as e:
+                    cgb_detection = {'error': str(e)}
+                
+                # Construir string de CGBDetection para el snapshot
+                cgb_detection_str = (f"CGBDetection_ROMHeaderFlag=0x{cgb_detection.get('rom_header_cgb_flag', 0):02X} "
+                                    f"CGBDetection_MachineIsCGB={cgb_detection.get('machine_is_cgb', 0)} "
+                                    f"CGBDetection_DMGCompatMode={1 if cgb_detection.get('dmg_compat_mode') else 0}")
+                
+                # --- Step 0495: IOWatchFF68FF6B section (Fase B) ---
+                io_watch_ff68_ff6b = {}
+                try:
+                    if hasattr(self.mmu, 'get_io_watch_ff68_ff6b'):
+                        io_watch_data = self.mmu.get_io_watch_ff68_ff6b()
+                        if io_watch_data:
+                            io_watch_ff68_ff6b = io_watch_data
+                except (AttributeError, TypeError, KeyError) as e:
+                    io_watch_ff68_ff6b = {'error': str(e)}
+                
+                # Construir string de IOWatchFF68FF6B para el snapshot
+                io_watch_str = (f"IOWatch_BGPI_WriteCount={io_watch_ff68_ff6b.get('bgpi_write_count', 0)} "
+                               f"IOWatch_BGPI_LastWritePC=0x{io_watch_ff68_ff6b.get('bgpi_last_write_pc', 0xFFFF):04X} "
+                               f"IOWatch_BGPD_WriteCount={io_watch_ff68_ff6b.get('bgpd_write_count', 0)} "
+                               f"IOWatch_BGPD_LastWritePC=0x{io_watch_ff68_ff6b.get('bgpd_last_write_pc', 0xFFFF):04X} "
+                               f"IOWatch_OBPI_WriteCount={io_watch_ff68_ff6b.get('obpi_write_count', 0)} "
+                               f"IOWatch_OBPI_LastWritePC=0x{io_watch_ff68_ff6b.get('obpi_last_write_pc', 0xFFFF):04X} "
+                               f"IOWatch_OBPD_WriteCount={io_watch_ff68_ff6b.get('obpd_write_count', 0)} "
+                               f"IOWatch_OBPD_LastWritePC=0x{io_watch_ff68_ff6b.get('obpd_last_write_pc', 0xFFFF):04X}")
+                
+                # --- Step 0495: CGBPaletteRAM section (Fase C) ---
+                cgb_palette_ram = {}
+                try:
+                    if hasattr(self.mmu, 'read_bg_palette_data') and hasattr(self.mmu, 'read_obj_palette_data'):
+                        # Leer 64 bytes de paleta BG (0x00-0x3F)
+                        bg_palette_bytes = []
+                        for i in range(64):
+                            bg_palette_bytes.append(self.mmu.read_bg_palette_data(i))
+                        bg_palette_bytes_hex = ''.join(f'{b:02X}' for b in bg_palette_bytes)
+                        
+                        # Leer 64 bytes de paleta OBJ (0x00-0x3F)
+                        obj_palette_bytes = []
+                        for i in range(64):
+                            obj_palette_bytes.append(self.mmu.read_obj_palette_data(i))
+                        obj_palette_bytes_hex = ''.join(f'{b:02X}' for b in obj_palette_bytes)
+                        
+                        # Contar entradas no blancas en paleta BG
+                        # Cada color es 2 bytes (low + high), hay 8 paletas de 4 colores = 64 bytes total
+                        # Un color es blanco si es 0x7FFF (0xFF 0x7F en little-endian)
+                        bg_palette_nonwhite_entries = 0
+                        for i in range(0, 64, 2):  # Cada color son 2 bytes
+                            if i + 1 < 64:
+                                color_low = bg_palette_bytes[i]
+                                color_high = bg_palette_bytes[i + 1]
+                                color_15bit = color_low | (color_high << 8)
+                                if color_15bit != 0x7FFF:  # No es blanco
+                                    bg_palette_nonwhite_entries += 1
+                        
+                        # Contar entradas no blancas en paleta OBJ
+                        obj_palette_nonwhite_entries = 0
+                        for i in range(0, 64, 2):  # Cada color son 2 bytes
+                            if i + 1 < 64:
+                                color_low = obj_palette_bytes[i]
+                                color_high = obj_palette_bytes[i + 1]
+                                color_15bit = color_low | (color_high << 8)
+                                if color_15bit != 0x7FFF:  # No es blanco
+                                    obj_palette_nonwhite_entries += 1
+                        
+                        cgb_palette_ram = {
+                            'bg_palette_bytes_hex': bg_palette_bytes_hex,
+                            'obj_palette_bytes_hex': obj_palette_bytes_hex,
+                            'bg_palette_nonwhite_entries': bg_palette_nonwhite_entries,
+                            'obj_palette_nonwhite_entries': obj_palette_nonwhite_entries,
+                        }
+                except (AttributeError, TypeError, KeyError, IndexError) as e:
+                    cgb_palette_ram = {'error': str(e)}
+                
+                # Construir string de CGBPaletteRAM para el snapshot (compacto)
+                cgb_palette_ram_str = (f"CGBPaletteRAM_BG_NonWhite={cgb_palette_ram.get('bg_palette_nonwhite_entries', 0)} "
+                                      f"CGBPaletteRAM_OBJ_NonWhite={cgb_palette_ram.get('obj_palette_nonwhite_entries', 0)} "
+                                      f"CGBPaletteRAM_BG_Hex={cgb_palette_ram.get('bg_palette_bytes_hex', '')[:32]}..."  # Primeros 16 bytes
+                                      f"CGBPaletteRAM_OBJ_Hex={cgb_palette_ram.get('obj_palette_bytes_hex', '')[:32]}...")  # Primeros 16 bytes
+                
+                # --- Step 0495: PixelProof section (Fase D) ---
+                pixel_proof = []
+                try:
+                    if hasattr(self.ppu, 'get_framebuffer_rgb') and hasattr(self.ppu, 'get_framebuffer_indices'):
+                        fb_rgb = self.ppu.get_framebuffer_rgb()
+                        fb_indices = self.ppu.get_framebuffer_indices()
+                        
+                        if fb_rgb is not None and fb_indices is not None and len(fb_rgb) >= 69120 and len(fb_indices) >= 23040:
+                            # Buscar 5 píxeles no blancos
+                            nonwhite_pixels_found = 0
+                            for y in range(144):
+                                if nonwhite_pixels_found >= 5:
+                                    break
+                                for x in range(160):
+                                    if nonwhite_pixels_found >= 5:
+                                        break
+                                    
+                                    idx = y * 160 + x
+                                    if idx >= len(fb_indices):
+                                        continue
+                                    
+                                    rgb_idx = idx * 3
+                                    if rgb_idx + 2 >= len(fb_rgb):
+                                        continue
+                                    
+                                    r = fb_rgb[rgb_idx]
+                                    g = fb_rgb[rgb_idx + 1]
+                                    b = fb_rgb[rgb_idx + 2]
+                                    
+                                    # Verificar si no es blanco (255, 255, 255)
+                                    if r != 255 or g != 255 or b != 255:
+                                        color_idx = fb_indices[idx] & 0x03  # Índice de color (0-3)
+                                        
+                                        # Obtener raw_15bit_color de la paleta CGB
+                                        # Asumir paleta BG por ahora (palette_used = "BG")
+                                        # Cada paleta tiene 4 colores, cada color es 2 bytes
+                                        # Paleta 0 = índices 0-7 (4 colores * 2 bytes)
+                                        palette_idx = color_idx * 2  # Índice en la paleta (0, 2, 4, 6)
+                                        raw_15bit_color = 0x7FFF  # Default: blanco
+                                        
+                                        try:
+                                            if hasattr(self.mmu, 'read_bg_palette_data'):
+                                                color_low = self.mmu.read_bg_palette_data(palette_idx)
+                                                color_high = self.mmu.read_bg_palette_data(palette_idx + 1)
+                                                raw_15bit_color = color_low | (color_high << 8)
+                                        except:
+                                            pass
+                                        
+                                        pixel_proof.append({
+                                            'x': x,
+                                            'y': y,
+                                            'idx': color_idx,
+                                            'palette_used': 'BG',  # Asumir BG por ahora
+                                            'raw_15bit_color': raw_15bit_color,
+                                            'rgb888_result': (r, g, b),
+                                        })
+                                        nonwhite_pixels_found += 1
+                except (AttributeError, TypeError, KeyError, IndexError) as e:
+                    pixel_proof = [{'error': str(e)}]
+                
+                # Construir string de PixelProof para el snapshot (compacto, solo primeros 2 píxeles)
+                pixel_proof_str = ""
+                if pixel_proof and len(pixel_proof) > 0:
+                    proof_samples = pixel_proof[:2]  # Solo primeros 2 para no saturar
+                    proof_parts = []
+                    for i, px in enumerate(proof_samples):
+                        if 'error' not in px:
+                            r, g, b = px.get('rgb888_result', (255, 255, 255))
+                            proof_parts.append(
+                                f"P{i}_({px.get('x', 0)},{px.get('y', 0)})_idx{px.get('idx', 0)}_"
+                                f"pal{px.get('palette_used', '?')}_15b0x{px.get('raw_15bit_color', 0x7FFF):04X}_"
+                                f"rgb({r},{g},{b})"
+                            )
+                    pixel_proof_str = "PixelProof_" + "_".join(proof_parts)
+                else:
+                    pixel_proof_str = "PixelProof_None"
+                
                 # --- Step 0494: IRQReality section (siempre, no solo en AfterClear) ---
                 irq_reality_snapshot = {}
                 try:
@@ -2319,6 +2500,10 @@ class ROMSmokeRunner:
                       f"DMGTileFetchStats={dmg_tile_stats_str} | "
                       f"VRAM_Regions_TiledataNZ={vram_tiledata_nonzero} VRAM_Regions_TilemapNZ={vram_tilemap_nonzero} | "
                       f"VRAMWriteStats={vram_write_stats_str} | "
+                      f"{cgb_detection_str} | "  # Step 0495: CGBDetection
+                      f"{io_watch_str} | "  # Step 0495: IOWatchFF68FF6B
+                      f"{cgb_palette_ram_str} | "  # Step 0495: CGBPaletteRAM
+                      f"{pixel_proof_str} | "  # Step 0495: PixelProof
                       f"{irq_reality_str}")
                 
                 # --- Step 0493: AfterClear section reforzada ---

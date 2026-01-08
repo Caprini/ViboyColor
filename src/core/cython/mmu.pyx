@@ -388,6 +388,43 @@ cdef class PyMMU:
         cdef int mode = <int>self._mmu.get_hardware_mode()
         return "CGB" if mode == 1 else "DMG"  # HardwareMode::CGB = 1, HardwareMode::DMG = 0
     
+    def get_dmg_compat_mode(self):
+        """
+        Step 0495: Obtiene si está en modo compatibilidad DMG dentro de CGB.
+        
+        En modo CGB, si LCDC bit 0 = 0 (LCD OFF), el hardware opera en modo
+        compatibilidad DMG, usando paletas DMG en lugar de paletas CGB.
+        
+        Returns:
+            True si está en modo compatibilidad DMG (LCDC bit 0 = 0), False en caso contrario
+        
+        Raises:
+            MemoryError: Si la instancia de MMU en C++ no existe
+        
+        Fuente: Pan Docs - CGB Registers, LCDC (0xFF40)
+        """
+        if self._mmu == NULL:
+            raise MemoryError("La instancia de MMU en C++ no existe.")
+        
+        # El método C++ devuelve int directamente (1 = true, 0 = false)
+        # Python convertirá automáticamente a bool cuando sea necesario
+        return self._mmu.get_dmg_compat_mode() != 0
+    
+    def get_rom_header_cgb_flag(self):
+        """
+        Step 0495: Obtiene el byte 0x0143 del header de la ROM (CGB flag).
+        
+        Returns:
+            Byte 0x0143 del header de la ROM (0x80 o 0xC0 = CGB, 0x00 = DMG)
+        
+        Raises:
+            MemoryError: Si la instancia de MMU en C++ no existe
+        """
+        if self._mmu == NULL:
+            raise MemoryError("La instancia de MMU en C++ no existe.")
+        
+        return self._mmu.get_rom_header_cgb_flag()
+    
     def initialize_io_registers(self):
         """
         Inicializa registros I/O según el modo de hardware actual.
@@ -1427,6 +1464,51 @@ cdef class PyMMU:
             'last_write_value': tracking.last_write_value,
             'write_count': tracking.write_count,
             'first_write_frame': tracking.first_write_frame,
+        }
+    
+    def get_io_watch_ff68_ff6b(self):
+        """
+        Step 0495: Obtiene tracking de writes/reads a registros CGB palette (FF68-FF6B).
+        
+        Returns:
+            dict con tracking de writes/reads a FF68-FF6B o None si no disponible.
+            Keys: bgpi_*, bgpd_*, obpi_*, obpd_* (write_count, last_write_pc, last_write_value,
+                  read_count, last_read_pc, last_read_value para cada registro)
+        """
+        if self._mmu == NULL:
+            return None
+        
+        cdef mmu.IOWatchFF68FF6B watch = self._mmu.get_io_watch_ff68_ff6b()
+        
+        return {
+            # FF68 (BGPI/BCPS)
+            'bgpi_write_count': watch.bgpi_write_count,
+            'bgpi_last_write_pc': watch.bgpi_last_write_pc,
+            'bgpi_last_write_value': watch.bgpi_last_write_value,
+            'bgpi_read_count': watch.bgpi_read_count,
+            'bgpi_last_read_pc': watch.bgpi_last_read_pc,
+            'bgpi_last_read_value': watch.bgpi_last_read_value,
+            # FF69 (BGPD/BCPD)
+            'bgpd_write_count': watch.bgpd_write_count,
+            'bgpd_last_write_pc': watch.bgpd_last_write_pc,
+            'bgpd_last_write_value': watch.bgpd_last_write_value,
+            'bgpd_read_count': watch.bgpd_read_count,
+            'bgpd_last_read_pc': watch.bgpd_last_read_pc,
+            'bgpd_last_read_value': watch.bgpd_last_read_value,
+            # FF6A (OBPI/OCPS)
+            'obpi_write_count': watch.obpi_write_count,
+            'obpi_last_write_pc': watch.obpi_last_write_pc,
+            'obpi_last_write_value': watch.obpi_last_write_value,
+            'obpi_read_count': watch.obpi_read_count,
+            'obpi_last_read_pc': watch.obpi_last_read_pc,
+            'obpi_last_read_value': watch.obpi_last_read_value,
+            # FF6B (OBPD/OCPD)
+            'obpd_write_count': watch.obpd_write_count,
+            'obpd_last_write_pc': watch.obpd_last_write_pc,
+            'obpd_last_write_value': watch.obpd_last_write_value,
+            'obpd_read_count': watch.obpd_read_count,
+            'obpd_last_read_pc': watch.obpd_last_read_pc,
+            'obpd_last_read_value': watch.obpd_last_read_value,
         }
     
     def read_bg_palette_data(self, uint8_t index):

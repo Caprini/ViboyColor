@@ -89,6 +89,59 @@ struct HRAMFFC5Tracking {
 };
 
 /**
+ * Step 0495: Estructura para tracking de writes/reads a registros CGB palette (FF68-FF6B).
+ * 
+ * Trackea:
+ * - FF68 (BGPI/BCPS): Background Palette Index/Specification
+ * - FF69 (BGPD/BCPD): Background Palette Data
+ * - FF6A (OBPI/OCPS): Object Palette Index/Specification
+ * - FF6B (OBPD/OCPD): Object Palette Data
+ */
+struct IOWatchFF68FF6B {
+    // FF68 (BGPI/BCPS) - Background Palette Index
+    uint32_t bgpi_write_count;
+    uint16_t bgpi_last_write_pc;
+    uint8_t bgpi_last_write_value;
+    uint32_t bgpi_read_count;
+    uint16_t bgpi_last_read_pc;
+    uint8_t bgpi_last_read_value;
+    
+    // FF69 (BGPD/BCPD) - Background Palette Data
+    uint32_t bgpd_write_count;
+    uint16_t bgpd_last_write_pc;
+    uint8_t bgpd_last_write_value;
+    uint32_t bgpd_read_count;
+    uint16_t bgpd_last_read_pc;
+    uint8_t bgpd_last_read_value;
+    
+    // FF6A (OBPI/OCPS) - Object Palette Index
+    uint32_t obpi_write_count;
+    uint16_t obpi_last_write_pc;
+    uint8_t obpi_last_write_value;
+    uint32_t obpi_read_count;
+    uint16_t obpi_last_read_pc;
+    uint8_t obpi_last_read_value;
+    
+    // FF6B (OBPD/OCPD) - Object Palette Data
+    uint32_t obpd_write_count;
+    uint16_t obpd_last_write_pc;
+    uint8_t obpd_last_write_value;
+    uint32_t obpd_read_count;
+    uint16_t obpd_last_read_pc;
+    uint8_t obpd_last_read_value;
+    
+    IOWatchFF68FF6B() : 
+        bgpi_write_count(0), bgpi_last_write_pc(0xFFFF), bgpi_last_write_value(0),
+        bgpi_read_count(0), bgpi_last_read_pc(0xFFFF), bgpi_last_read_value(0),
+        bgpd_write_count(0), bgpd_last_write_pc(0xFFFF), bgpd_last_write_value(0),
+        bgpd_read_count(0), bgpd_last_read_pc(0xFFFF), bgpd_last_read_value(0),
+        obpi_write_count(0), obpi_last_write_pc(0xFFFF), obpi_last_write_value(0),
+        obpi_read_count(0), obpi_last_read_pc(0xFFFF), obpi_last_read_value(0),
+        obpd_write_count(0), obpd_last_write_pc(0xFFFF), obpd_last_write_value(0),
+        obpd_read_count(0), obpd_last_read_pc(0xFFFF), obpd_last_read_value(0) {}
+};
+
+/**
  * Step 0490: Estructura para estadísticas de writes a VRAM.
  * Step 0491: Ampliada para separar attempts vs nonzero writes + bank + VBK.
  * Step 0492: Ampliada con tracking de Clear VRAM y writes después del clear.
@@ -500,6 +553,27 @@ public:
     HardwareMode get_hardware_mode() const;
     
     /**
+     * Step 0495: Obtiene si está en modo compatibilidad DMG dentro de CGB
+     * 
+     * En modo CGB, si LCDC bit 0 = 0 (LCD OFF), el hardware opera en modo
+     * compatibilidad DMG, usando paletas DMG en lugar de paletas CGB.
+     * 
+     * @return 1 si está en modo compatibilidad DMG (LCDC bit 0 = 0), 0 en caso contrario
+     * 
+     * Fuente: Pan Docs - CGB Registers, LCDC (0xFF40)
+     * 
+     * Nota: Devuelve int en lugar de bool para evitar problemas de conversión en Cython
+     */
+    int get_dmg_compat_mode() const;
+    
+    /**
+     * Step 0495: Obtiene el byte 0x0143 del header de la ROM (CGB flag)
+     * 
+     * @return Byte 0x0143 del header de la ROM (0x80 o 0xC0 = CGB, 0x00 = DMG)
+     */
+    uint8_t get_rom_header_cgb_flag() const;
+    
+    /**
      * Step 0404: Inicializa registros I/O según el modo de hardware
      * 
      * Configura los registros I/O (LCDC, BGP, CGB-specific, etc.) según el modo
@@ -637,6 +711,7 @@ private:
      * --- Gestión de ROM / MBC ---
      */
     std::vector<uint8_t> rom_data_;
+    uint8_t rom_header_cgb_flag_;  // Step 0495: CGB flag del header ROM (byte 0x0143)
     MBCType mbc_type_;
     size_t rom_bank_count_;
     uint16_t current_rom_bank_;   // Hasta 9 bits (MBC5)
@@ -1137,6 +1212,7 @@ private:
     // --- Step 0494: Tracking de writes a IF/IE y HRAM[0xFFC5] ---
     mutable IFIETracking if_ie_tracking_;
     mutable HRAMFFC5Tracking hram_ffc5_tracking_;
+    mutable IOWatchFF68FF6B io_watch_ff68_ff6b_;  // Step 0495: Tracking de writes/reads a FF68-FF6B
     
     // --- Step 0486: Contadores JOYP por source y selección ---
     mutable uint32_t joyp_reads_prog_buttons_sel_;   // Program reads con buttons selected (bit4=0)
@@ -1987,6 +2063,13 @@ public:
      * @return Referencia constante a HRAMFFC5Tracking con el tracking
      */
     const HRAMFFC5Tracking& get_hram_ffc5_tracking() const;
+    
+    /**
+     * Step 0495: Obtiene el tracking de writes/reads a registros CGB palette (FF68-FF6B).
+     * 
+     * @return Referencia constante a IOWatchFF68FF6B con el tracking
+     */
+    const IOWatchFF68FF6B& get_io_watch_ff68_ff6b() const;
 };
 
 #endif // MMU_HPP
