@@ -367,6 +367,11 @@ class Renderer:
         }
     
     def _show_loading_screen(self, duration: float = 3.5) -> None:
+        # --- Step 0496: Modo headless - no mostrar loading screen si no hay screen ---
+        if self.screen is None:
+            # Modo headless: saltar loading screen
+            logger.info("[Renderer-Loading] Modo headless detectado, saltando loading screen")
+            return
         """
         Muestra una pantalla de carga con el icono de la aplicación y texto animado.
         
