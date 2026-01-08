@@ -1384,6 +1384,79 @@ cdef class PyMMU:
             'tiledata_write_ring': ring_events,  # Últimos N eventos
         }
     
+    def get_if_ie_tracking(self):
+        """
+        Step 0494: Obtiene tracking de writes a IF/IE.
+        
+        Returns:
+            dict con tracking de writes a IF/IE o None si no disponible.
+            Keys: 'last_if_write_pc', 'last_if_write_value', 'last_if_applied_value', 'if_write_count',
+                  'last_ie_write_pc', 'last_ie_write_value', 'last_ie_applied_value', 'ie_write_count'
+        """
+        if self._mmu == NULL:
+            return None
+        
+        cdef mmu.IFIETracking tracking = self._mmu.get_if_ie_tracking()
+        
+        return {
+            'last_if_write_pc': tracking.last_if_write_pc,
+            'last_if_write_value': tracking.last_if_write_value,
+            'last_if_applied_value': tracking.last_if_applied_value,
+            'if_write_count': tracking.if_write_count,
+            'last_ie_write_pc': tracking.last_ie_write_pc,
+            'last_ie_write_value': tracking.last_ie_write_value,
+            'last_ie_applied_value': tracking.last_ie_applied_value,
+            'ie_write_count': tracking.ie_write_count,
+        }
+    
+    def get_hram_ffc5_tracking(self):
+        """
+        Step 0494: Obtiene tracking de writes a HRAM[0xFFC5].
+        
+        Returns:
+            dict con tracking de writes a HRAM[0xFFC5] o None si no disponible.
+            Keys: 'last_write_pc', 'last_write_value', 'write_count', 'first_write_frame'
+        """
+        if self._mmu == NULL:
+            return None
+        
+        cdef mmu.HRAMFFC5Tracking tracking = self._mmu.get_hram_ffc5_tracking()
+        
+        return {
+            'last_write_pc': tracking.last_write_pc,
+            'last_write_value': tracking.last_write_value,
+            'write_count': tracking.write_count,
+            'first_write_frame': tracking.first_write_frame,
+        }
+    
+    def read_bg_palette_data(self, uint8_t index):
+        """
+        Step 0494: Lee un byte de la paleta BG CGB.
+        
+        Args:
+            index: Índice en el array de paleta (0x00-0x3F)
+        
+        Returns:
+            Byte de paleta (RGB555 low/high byte)
+        """
+        if self._mmu == NULL:
+            return 0xFF
+        return self._mmu.read_bg_palette_data(index)
+    
+    def read_obj_palette_data(self, uint8_t index):
+        """
+        Step 0494: Lee un byte de la paleta OBJ CGB.
+        
+        Args:
+            index: Índice en el array de paleta (0x00-0x3F)
+        
+        Returns:
+            Byte de paleta (RGB555 low/high byte)
+        """
+        if self._mmu == NULL:
+            return 0xFF
+        return self._mmu.read_obj_palette_data(index)
+    
     def get_last_lcdc_write_pc(self):
         """
         Step 0482: Obtiene el PC de la última escritura a LCDC.

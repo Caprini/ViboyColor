@@ -47,6 +47,28 @@ struct FF92IETraceEvent {
 };
 
 /**
+ * Step 0494: IRQ Trace Event
+ * 
+ * Estructura para rastrear eventos de interrupciones tomadas en un ring-buffer.
+ */
+struct IRQTraceEvent {
+    uint32_t frame;
+    uint16_t pc_before;
+    uint16_t vector;
+    uint8_t ie;
+    uint8_t if_before;
+    uint8_t if_after;
+    uint8_t ime_before;
+    uint16_t sp_before;
+    uint16_t sp_after;
+    uint8_t pushed_pc_low;
+    uint8_t pushed_pc_high;
+    
+    IRQTraceEvent() : frame(0), pc_before(0xFFFF), vector(0), ie(0), if_before(0), if_after(0),
+                      ime_before(0), sp_before(0), sp_after(0), pushed_pc_low(0), pushed_pc_high(0) {}
+};
+
+/**
  * CPU - Procesador LR35902 de la Game Boy
  * 
  * Esta clase implementa el ciclo de instrucción (Fetch-Decode-Execute)
@@ -799,6 +821,12 @@ private:
     std::vector<FF92IETraceEvent> ff92_ie_trace_;
     static constexpr size_t FF92_IE_TRACE_SIZE = 64;
     
+    // --- Step 0494: IRQ Trace Ring-Buffer y contadores de interrupt taken ---
+    static constexpr size_t IRQ_TRACE_RING_SIZE = 64;
+    IRQTraceEvent irq_trace_ring_[IRQ_TRACE_RING_SIZE];
+    size_t irq_trace_ring_head_;
+    uint32_t interrupt_taken_counts_[5];  // [VBlank, LCD-STAT, Timer, Serial, Joypad]
+    
     // ========== Estado de Triage (Step 0434) ==========
     // Instrumentación para entender por qué VRAM está vacía
     bool triage_active_;               // Flag para activar triage (limitado por frames)
@@ -1325,6 +1353,21 @@ public:
      * @return Vector de los últimos N eventos
      */
     std::vector<FF92IETraceEvent> get_ff92_ie_trace_tail(size_t n) const;
+    
+    /**
+     * Step 0494: Obtiene contadores reales de interrupt taken por tipo.
+     * 
+     * @return Puntero al array de 5 contadores [VBlank, LCD-STAT, Timer, Serial, Joypad]
+     */
+    const uint32_t* get_interrupt_taken_counts() const;
+    
+    /**
+     * Step 0494: Obtiene el ring-buffer de eventos IRQ (últimos N eventos).
+     * 
+     * @param n Número de eventos a retornar (máximo IRQ_TRACE_RING_SIZE)
+     * @return Vector de eventos IRQ (más recientes primero)
+     */
+    std::vector<IRQTraceEvent> get_irq_trace_ring(size_t n) const;
 };
 
 #endif // CPU_HPP

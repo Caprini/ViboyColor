@@ -179,6 +179,8 @@ MMU::MMU()
     , waits_on_addr_(0x0000)  // Step 0479: I/O esperado (0 = no configurado)
     , cgb_palette_write_stats_()  // Step 0489: Inicializar estadísticas de writes a paletas CGB
     , vram_write_stats_()  // Step 0490: Inicializar estadísticas de writes a VRAM
+    , if_ie_tracking_()  // Step 0494: Inicializar tracking de IF/IE
+    , hram_ffc5_tracking_()  // Step 0494: Inicializar tracking de HRAM[0xFFC5]
     , waits_on_reads_program_(0)  // Step 0479: Contador de reads desde programa
     , last_waits_on_read_value_(0x00)  // Step 0479: Último valor leído del I/O esperado
     , last_waits_on_read_pc_(0x0000)  // Step 0479: Último PC que leyó el I/O esperado
@@ -1346,6 +1348,13 @@ void MMU::write(uint16_t addr, uint8_t value) {
         last_ie_write_pc = debug_current_pc;
         last_ie_write_timestamp++;
         
+        // --- Step 0494: Tracking de writes a IE ---
+        if_ie_tracking_.last_ie_write_pc = debug_current_pc;
+        if_ie_tracking_.last_ie_write_value = value;
+        if_ie_tracking_.last_ie_applied_value = value & 0x1F;  // Máscara aplicada
+        if_ie_tracking_.ie_write_count++;
+        // -----------------------------------------
+        
         // --- Step 0486: FF92 to IE Trace (gated por VIBOY_DEBUG_MARIO_FF92=1) ---
         bool debug_mario_ff92 = (std::getenv("VIBOY_DEBUG_MARIO_FF92") != nullptr && 
                                   std::string(std::getenv("VIBOY_DEBUG_MARIO_FF92")) == "1");
@@ -1410,6 +1419,13 @@ void MMU::write(uint16_t addr, uint8_t value) {
         } else {
             if_writes_nonzero_++;
         }
+        
+        // --- Step 0494: Tracking de writes a IF ---
+        if_ie_tracking_.last_if_write_pc = debug_current_pc;
+        if_ie_tracking_.last_if_write_value = value;
+        if_ie_tracking_.last_if_applied_value = value & 0x1F;  // Máscara aplicada
+        if_ie_tracking_.if_write_count++;
+        // -----------------------------------------
         
         // Log gated (solo si VIBOY_DEBUG_IO=1 o VIBOY_DEBUG_IRQ=1)
         bool debug_io = (std::getenv("VIBOY_DEBUG_IO") != nullptr && 
@@ -3378,6 +3394,18 @@ void MMU::write(uint16_t addr, uint8_t value) {
         }
         // -----------------------------------------
         
+        // --- Step 0494: Tracking de writes a HRAM[0xFFC5] ---
+        if (addr == 0xFFC5) {
+            hram_ffc5_tracking_.last_write_pc = debug_current_pc;
+            hram_ffc5_tracking_.last_write_value = value;
+            hram_ffc5_tracking_.write_count++;
+            
+            if (hram_ffc5_tracking_.first_write_frame == 0 && ppu_ != nullptr) {
+                hram_ffc5_tracking_.first_write_frame = static_cast<uint32_t>(ppu_->get_frame_counter());
+            }
+        }
+        // -----------------------------------------
+        
         // Escribir en HRAM (después del tracking)
         memory_[addr] = value;
         return;  // Early return para HRAM
@@ -5144,6 +5172,16 @@ const CGBPaletteWriteStats& MMU::get_cgb_palette_write_stats() const {
 const VRAMWriteStats& MMU::get_vram_write_stats() const {
     return vram_write_stats_;
 }
+
+// --- Step 0494: Getters para IF/IE y HRAM[0xFFC5] tracking ---
+const IFIETracking& MMU::get_if_ie_tracking() const {
+    return if_ie_tracking_;
+}
+
+const HRAMFFC5Tracking& MMU::get_hram_ffc5_tracking() const {
+    return hram_ffc5_tracking_;
+}
+// --- Fin Step 0494 ---
 // --- Fin Step 0490 ---
 // --- Fin Step 0487 (JOYP contadores por tipo de selección) ---
 // --- Fin Step 0485 (JOYP Trace) ---

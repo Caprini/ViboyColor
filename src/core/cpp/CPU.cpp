@@ -46,7 +46,16 @@ CPU::CPU(MMU* mmu, CoreRegisters* registers)
       branch_0x1290_stats_(),  // Step 0484: Branch 0x1290 stats (inicializado por constructor por defecto)
       mario_loop_ly_watch_(), mario_loop_start_(0x128C), mario_loop_end_(0x1290),  // Step 0485: Mario Loop LY Watch
       branch_0x1290_corr_(),  // Step 0485: Branch 0x1290 Correlation
-      triage_active_(false), triage_frame_limit_(0), triage_last_pc_(0xFFFF), triage_pc_sample_count_(0) {  // Step 0434
+      triage_active_(false), triage_frame_limit_(0), triage_last_pc_(0xFFFF), triage_pc_sample_count_(0),  // Step 0434
+      irq_trace_ring_head_(0) {  // Step 0494: IRQ trace ring head
+    // Step 0436: Pokemon micro trace ya está inicializado por su constructor por defecto
+    // Step 0494: Inicializar interrupt_taken_counts_ y irq_trace_ring_
+    for (int i = 0; i < 5; i++) {
+        interrupt_taken_counts_[i] = 0;
+    }
+    for (size_t i = 0; i < IRQ_TRACE_RING_SIZE; i++) {
+        irq_trace_ring_[i] = IRQTraceEvent();
+    }
     // Step 0436: Pokemon micro trace ya está inicializado por su constructor por defecto
     // Validación básica (en producción, podríamos usar assert)
     // Por ahora, confiamos en que Python pasa punteros válidos
@@ -4047,6 +4056,40 @@ uint8_t CPU::handle_interrupts() {
         // Guardar PC en la pila (dirección de retorno)
         push_word(prev_pc);
         
+        // --- Step 0494: Contador real de interrupt taken ---
+        if (vector == 0x0040) {
+            interrupt_taken_counts_[0]++;  // VBlank
+        } else if (vector == 0x0048) {
+            interrupt_taken_counts_[1]++;  // LCD-STAT
+        } else if (vector == 0x0050) {
+            interrupt_taken_counts_[2]++;  // Timer
+        } else if (vector == 0x0058) {
+            interrupt_taken_counts_[3]++;  // Serial
+        } else if (vector == 0x0060) {
+            interrupt_taken_counts_[4]++;  // Joypad
+        }
+        
+        // --- Step 0494: Añadir evento al ring-buffer ---
+        size_t idx = irq_trace_ring_head_ % IRQ_TRACE_RING_SIZE;
+        irq_trace_ring_[idx].frame = (ppu_ != nullptr) ? ppu_->get_frame_counter() : 0;
+        irq_trace_ring_[idx].pc_before = prev_pc;
+        irq_trace_ring_[idx].vector = vector;
+        irq_trace_ring_[idx].ie = ie_reg;
+        irq_trace_ring_[idx].if_before = if_before_clear;
+        irq_trace_ring_[idx].if_after = new_if;
+        irq_trace_ring_[idx].ime_before = 1;  // IME estaba activo
+        irq_trace_ring_[idx].sp_before = sp_before_push;
+        irq_trace_ring_[idx].sp_after = regs_->sp;
+        
+        // Leer PC guardado en la pila
+        uint8_t pc_low = mmu_->read(regs_->sp);
+        uint8_t pc_high = mmu_->read(regs_->sp + 1);
+        irq_trace_ring_[idx].pushed_pc_low = pc_low;
+        irq_trace_ring_[idx].pushed_pc_high = pc_high;
+        
+        irq_trace_ring_head_++;
+        // -----------------------------------------
+        
         // --- Step 0387: Verificar stack después del push ---
         if (irq_push_log < 30) {
             uint16_t sp_after_push = regs_->sp;
@@ -4677,6 +4720,31 @@ std::vector<FF92IETraceEvent> CPU::get_ff92_ie_trace_tail(size_t n) const {
 }
 // --- Fin Step 0487 (FF92 to IE Trace) ---
 // --- Fin Step 0486 (LDH Address Watch) ---
+
+// --- Step 0494: Getters para interrupt_taken_counts e IRQ trace ---
+const uint32_t* CPU::get_interrupt_taken_counts() const {
+    return interrupt_taken_counts_;
+}
+
+std::vector<IRQTraceEvent> CPU::get_irq_trace_ring(size_t n) const {
+    std::vector<IRQTraceEvent> result;
+    if (n == 0 || irq_trace_ring_head_ == 0) {
+        return result;
+    }
+    
+    size_t count = (n > IRQ_TRACE_RING_SIZE) ? IRQ_TRACE_RING_SIZE : n;
+    size_t start_idx = (irq_trace_ring_head_ >= count) ? (irq_trace_ring_head_ - count) : 0;
+    
+    for (size_t i = 0; i < count && (start_idx + i) < irq_trace_ring_head_; i++) {
+        size_t idx = (start_idx + i) % IRQ_TRACE_RING_SIZE;
+        result.push_back(irq_trace_ring_[idx]);
+    }
+    
+    // Invertir para que los más recientes estén primero
+    std::reverse(result.begin(), result.end());
+    return result;
+}
+// --- Fin Step 0494 ---
 
 // --- Step 0472: Implementación de getters para STOP ---
 uint32_t CPU::get_stop_executed_count() const {

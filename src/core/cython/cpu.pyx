@@ -817,6 +817,63 @@ cdef class PyCPU:
         return result
     # --- Fin Step 0487 (FF92 to IE Trace) ---
     
+    # --- Step 0494: Getters para interrupt_taken_counts e IRQ trace ---
+    def get_interrupt_taken_counts(self):
+        """
+        Step 0494: Obtiene contadores reales de interrupt taken por tipo.
+        
+        Returns:
+            Diccionario con contadores por tipo de interrupción:
+            - 'vblank': Contador de VBlank interrupts tomadas
+            - 'lcd_stat': Contador de LCD-STAT interrupts tomadas
+            - 'timer': Contador de Timer interrupts tomadas
+            - 'serial': Contador de Serial interrupts tomadas
+            - 'joypad': Contador de Joypad interrupts tomadas
+        """
+        if self._cpu == NULL:
+            return None
+        
+        cdef const uint32_t* counts = self._cpu.get_interrupt_taken_counts()
+        return {
+            'vblank': counts[0],
+            'lcd_stat': counts[1],
+            'timer': counts[2],
+            'serial': counts[3],
+            'joypad': counts[4],
+        }
+    
+    def get_irq_trace_ring(self, size_t n=10):
+        """
+        Step 0494: Obtiene ring-buffer de eventos IRQ (últimos N eventos).
+        
+        Args:
+            n: Número de eventos a retornar (máximo 64)
+        
+        Returns:
+            Lista de diccionarios con los eventos IRQ (más recientes primero)
+        """
+        if self._cpu == NULL:
+            return []
+        
+        cdef vector[cpu.IRQTraceEvent] trace = self._cpu.get_irq_trace_ring(n)
+        result = []
+        for event in trace:
+            result.append({
+                'frame': event.frame,
+                'pc_before': event.pc_before,
+                'vector': event.vector,
+                'ie': event.ie,
+                'if_before': event.if_before,
+                'if_after': event.if_after,
+                'ime_before': event.ime_before,
+                'sp_before': event.sp_before,
+                'sp_after': event.sp_after,
+                'pushed_pc_low': event.pushed_pc_low,
+                'pushed_pc_high': event.pushed_pc_high,
+            })
+        return result
+    # --- Fin Step 0494 ---
+    
     # --- Fin Step 0475 ---
     
     # Propiedades para acceso directo (compatibilidad con tests)

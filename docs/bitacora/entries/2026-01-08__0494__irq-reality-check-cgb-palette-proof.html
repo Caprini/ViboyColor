@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IRQ Reality Check + CGB Palette Proof - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>IRQ Reality Check + CGB Palette Proof</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2026-01-08
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0494
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-01-06__0493__identificar-bloqueo-dmg-y-demostrar-señal-cgb.html">Anterior (0493)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este step implementa mecanismos de tracking avanzados para verificar el comportamiento real de las interrupciones (IRQ) en modo DMG y el estado de las paletas CGB. Se implementó tracking de interrupciones realmente tomadas (interrupt_taken_counts), tracking de writes a IF/IE y HRAM[0xFFC5], y se integró en rom_smoke_0442.py con una sección IRQReality siempre visible. Resultado clave DMG: IRQTaken_VBlank=2579 confirma que las interrupciones VBlank se están tomando correctamente, descartando problemas de interrupciones como causa de la pantalla blanca. Resultado clave CGB: IdxNonZero=22910 pero RgbNonWhite=0, confirmando que el problema está en el pipeline de renderizado (paletas/mapeo) más que en el fetch de tiles.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Interrupciones Realmente Tomadas</strong>: En el Game Boy, cuando una interrupción está pendiente (IF bit set) y el IME (Interrupt Master Enable) está activo, la CPU debe tomar la interrupción en el siguiente ciclo de instrucción. Sin embargo, es posible que el emulador reporte que las interrupciones están "servidas" sin que realmente se hayan tomado. El tracking de interrupciones realmente tomadas verifica que la CPU realmente ejecute el código del handler de interrupción.
+                </p>
+                <p>
+                    <strong>HRAM[0xFFC5]</strong>: Algunos juegos usan HRAM[0xFFC5] como flag para indicar que el handler de VBlank ha completado. Tracking de writes a esta ubicación puede confirmar que el handler se está ejecutando.
+                </p>
+                <p>
+                    <strong>Paletas CGB</strong>: En modo CGB, las paletas se configuran escribiendo a BGPI/OBPI (Palette Index) y luego a BGPD/OBPD (Palette Data). Si no hay writes a estas ubicaciones, el juego está usando paletas DMG (BGP/OBP0/OBP1) en lugar de CGB.
+                </p>
+                <p>
+                    <strong>Referencia:</strong> Pan Docs - "Interrupts", "CGB Palettes", "Memory Map"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>Fase A: DMG IRQ Reality Check</h3>
+                <h4>A1-A2: Tracking de Interrupciones Tomadas</h4>
+                <p>
+                    Se implementó en <code>CPU.hpp/CPU.cpp</code>:
+                </p>
+                <ul>
+                    <li><code>interrupt_taken_counts_[5]</code>: Contador de interrupciones realmente tomadas por tipo (VBlank, LCD-STAT, Timer, Serial, Joypad)</li>
+                    <li><code>IRQTraceEvent</code>: Estructura con información detallada de cada interrupción (frame, PC antes, vector, IE, IF antes/después, IME, SP antes/después, PC guardado en pila)</li>
+                    <li><code>irq_trace_ring_[64]</code>: Ring buffer de últimos 64 eventos IRQ</li>
+                </ul>
+                
+                <h4>A3-A4: Tracking de Writes a IF/IE y HRAM[0xFFC5]</h4>
+                <p>
+                    Se implementó en <code>MMU.hpp/MMU.cpp</code>:
+                </p>
+                <ul>
+                    <li><code>IFIETracking</code>: Tracking de writes a <code>0xFF0F</code> (IF) y <code>0xFFFF</code> (IE) con PC, valor escrito y valor aplicado</li>
+                    <li><code>HRAMFFC5Tracking</code>: Tracking de writes a <code>0xFFC5</code> con PC, valor escrito y frame de primera escritura</li>
+                </ul>
+                
+                <h4>A5: Exposición Cython</h4>
+                <p>
+                    Se implementaron getters en <code>cpu.pyx</code> y <code>mmu.pyx</code>:
+                </p>
+                <ul>
+                    <li><code>get_interrupt_taken_counts()</code>: Retorna diccionario con contadores por tipo</li>
+                    <li><code>get_irq_trace_ring(n)</code>: Retorna últimos n eventos IRQ</li>
+                    <li><code>get_if_ie_tracking()</code>: Retorna tracking de IF/IE</li>
+                    <li><code>get_hram_ffc5_tracking()</code>: Retorna tracking de HRAM[0xFFC5]</li>
+                </ul>
+                
+                <h4>A6: Integración en rom_smoke_0442.py</h4>
+                <p>
+                    Se añadió sección <code>IRQReality</code> al snapshot principal (siempre visible, no solo en AfterClear):
+                </p>
+                <ul>
+                    <li>Captura de <code>interrupt_taken_counts</code></li>
+                    <li>Captura de <code>if_ie_tracking</code></li>
+                    <li>Captura de <code>hram_ffc5_tracking</code></li>
+                </ul>
+                
+                <h3>Fase B: CGB Palette Proof</h3>
+                <p>
+                    Se ejecutó <code>tetris_dx.gbc</code> con <code>VIBOY_DEBUG_CGB_PALETTE_WRITES=1</code> por 1200 frames. El snapshot ya incluía <code>CGBPaletteWriteStats</code>, <code>palette0_decode</code> y <code>bg_palette_nonwhite_entries</code> (implementado en Step 0493).
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.hpp</code> - Añadido IRQTraceEvent, interrupt_taken_counts_, irq_trace_ring_</li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Implementado tracking de interrupciones tomadas y ring buffer</li>
+                    <li><code>src/core/cpp/MMU.hpp</code> - Añadido IFIETracking, HRAMFFC5Tracking</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Implementado tracking de writes a IF/IE y HRAM[0xFFC5]</li>
+                    <li><code>src/core/cython/cpu.pxd</code> - Declaraciones de estructuras y getters</li>
+                    <li><code>src/core/cython/cpu.pyx</code> - Implementación de getters Python</li>
+                    <li><code>src/core/cython/mmu.pxd</code> - Declaraciones de estructuras y getters</li>
+                    <li><code>src/core/cython/mmu.pyx</code> - Implementación de getters Python</li>
+                    <li><code>tools/rom_smoke_0442.py</code> - Integración de sección IRQReality en snapshot principal</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Comando ejecutado (DMG):</strong>
+                </p>
+                <pre><code>export VIBOY_SIM_BOOT_LOGO=0
+export VIBOY_POST_BOOT_DMG_PROFILE=B
+export VIBOY_DEBUG_VRAM_WRITES=1
+export VIBOY_DEBUG_DMG_TILE_FETCH=1
+export VIBOY_DEBUG_PRESENT_TRACE=1
+python3 -m tools.rom_smoke_0442 roms/tetris.gb --frames 3000</code></pre>
+                <p>
+                    <strong>Resultados (Frame 2580):</strong>
+                </p>
+                <ul>
+                    <li><code>IRQTaken_VBlank=2579</code> ✅ (criterio: > 0)</li>
+                    <li><code>HRAM_FFC5_WriteCount=1</code> ✅ (criterio: >= 1)</li>
+                    <li><code>IF_WriteCount=5160</code></li>
+                    <li><code>IE_WriteCount=3</code></li>
+                    <li><code>VBlankServ=2579</code></li>
+                </ul>
+                <p>
+                    <strong>Comando ejecutado (CGB):</strong>
+                </p>
+                <pre><code>export VIBOY_SIM_BOOT_LOGO=0
+export VIBOY_DEBUG_CGB_PALETTE_WRITES=1
+python3 -m tools.rom_smoke_0442 roms/tetris_dx.gbc --frames 1200</code></pre>
+                <p>
+                    <strong>Resultados (Frame 600):</strong>
+                </p>
+                <ul>
+                    <li><code>IdxNonZero=22910</code> ✅ (criterio: > 0)</li>
+                    <li><code>RgbNonWhite=0</code> ❌ (criterio: > 0, no cumplido - juego usa paletas DMG)</li>
+                    <li><code>CGBPaletteWriteStats=BGPD_Writes=0 OBPD_Writes=0</code></li>
+                </ul>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong>
+                </p>
+                <pre><code>python3 test_build.py
+# Resultado: [EXITO] El pipeline de compilacion funciona correctamente</code></pre>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: "Interrupts" - Comportamiento de interrupciones en LR35902</li>
+                    <li>Pan Docs: "CGB Palettes" - Configuración de paletas CGB</li>
+                    <li>Pan Docs: "Memory Map" - Mapeo de memoria y registros I/O</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Interrupciones Realmente Tomadas</strong>: El tracking de interrupciones realmente tomadas verifica que la CPU realmente ejecute el código del handler, no solo que el flag esté set. Esto es crítico para diagnosticar problemas de sincronización.</li>
+                        <li><strong>HRAM[0xFFC5] como Flag</strong>: Algunos juegos usan HRAM[0xFFC5] como flag para indicar que el handler de VBlank ha completado. Tracking de writes a esta ubicación puede confirmar que el handler se está ejecutando.</li>
+                        <li><strong>Paletas CGB vs DMG</strong>: En modo CGB, las paletas se configuran escribiendo a BGPI/OBPI y luego a BGPD/OBPD. Si no hay writes a estas ubicaciones, el juego está usando paletas DMG (BGP/OBP0/OBP1) en lugar de CGB.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Pipeline de Renderizado</strong>: Dado que las interrupciones funcionan correctamente, el problema de pantalla blanca está en el pipeline de renderizado (fetch de tiles, mapeo de paletas, o conversión de índices a RGB).</li>
+                        <li><strong>Mapeo de Paletas DMG</strong>: Aunque tetris_dx.gbc usa paletas DMG, el hecho de que RgbNonWhite=0 sugiere que puede haber un problema en el mapeo de índices a colores RGB.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis Principal</strong>: El problema de pantalla blanca NO es causado por interrupciones no tomadas, sino por un problema en el pipeline de renderizado (fetch de tiles, mapeo de paletas, o conversión de índices a RGB). Esta hipótesis está respaldada por los datos: las interrupciones se están tomando correctamente (IRQTaken_VBlank=2579), pero el framebuffer sigue siendo blanco.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Investigar pipeline de renderizado: Dado que las interrupciones funcionan correctamente, el problema está en el fetch/renderizado de tiles o en la conversión de índices a RGB.</li>
+                    <li>[ ] Verificar mapeo de paletas DMG: Aunque tetris_dx.gbc usa paletas DMG, el hecho de que RgbNonWhite=0 sugiere que puede haber un problema en el mapeo de índices a colores RGB.</li>
+                    <li>[ ] Analizar VRAM writes: Los datos muestran que hay writes a VRAM (TiledataNonZeroB0=11000), pero el framebuffer sigue siendo blanco, lo que sugiere un problema en el fetch o en la conversión.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

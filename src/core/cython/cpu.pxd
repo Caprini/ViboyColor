@@ -57,6 +57,20 @@ cdef extern from "CPU.hpp":
         uint16_t effective_addr
         uint8_t val
     
+    # Step 0494: Declarar estructura IRQTraceEvent para acceso desde Cython
+    cdef struct IRQTraceEvent:
+        uint32_t frame
+        uint16_t pc_before
+        uint16_t vector
+        uint8_t ie
+        uint8_t if_before
+        uint8_t if_after
+        uint8_t ime_before
+        uint16_t sp_before
+        uint16_t sp_after
+        uint8_t pushed_pc_low
+        uint8_t pushed_pc_high
+    
     cdef cppclass CPU:
         # Constructor: recibe punteros a MMU y CoreRegisters
         CPU(MMU* mmu, CoreRegisters* registers) except +
@@ -168,4 +182,7 @@ cdef extern from "CPU.hpp":
         # Step 0487: FF92 to IE Trace
         vector[FF92IETraceEvent] get_ff92_ie_trace() const
         vector[FF92IETraceEvent] get_ff92_ie_trace_tail(size_t n) const
+        # Step 0494: Interrupt taken counts e IRQ trace
+        const uint32_t* get_interrupt_taken_counts() const
+        vector[IRQTraceEvent] get_irq_trace_ring(size_t n) const
 

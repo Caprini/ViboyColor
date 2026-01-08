@@ -56,6 +56,24 @@ cdef extern from "MMU.hpp":
         uint8_t last_obpd_value
         uint8_t last_obpi
     
+    # Step 0494: Estructura IFIETracking (definida fuera de la clase MMU)
+    cdef struct IFIETracking:
+        uint16_t last_if_write_pc
+        uint8_t last_if_write_value
+        uint8_t last_if_applied_value
+        uint32_t if_write_count
+        uint16_t last_ie_write_pc
+        uint8_t last_ie_write_value
+        uint8_t last_ie_applied_value
+        uint32_t ie_write_count
+    
+    # Step 0494: Estructura HRAMFFC5Tracking (definida fuera de la clase MMU)
+    cdef struct HRAMFFC5Tracking:
+        uint16_t last_write_pc
+        uint8_t last_write_value
+        uint32_t write_count
+        uint32_t first_write_frame
+    
     # Step 0490: Estructura VRAMWriteStats (definida fuera de la clase MMU)
     # Step 0491: Ampliada para separar attempts vs nonzero writes + bank + VBK
     # Step 0492: Ampliada con tracking de Clear VRAM
@@ -237,4 +255,10 @@ cdef extern from "MMU.hpp":
         CGBPaletteWriteStats get_cgb_palette_write_stats() const
         # Step 0490: VRAM Write Stats
         VRAMWriteStats get_vram_write_stats() const
+        # Step 0494: IF/IE y HRAM[0xFFC5] Tracking
+        IFIETracking get_if_ie_tracking() const
+        HRAMFFC5Tracking get_hram_ffc5_tracking() const
+        # Step 0494: Acceso directo a paletas CGB (para decode)
+        uint8_t read_bg_palette_data(uint8_t index) const
+        uint8_t read_obj_palette_data(uint8_t index) const
 

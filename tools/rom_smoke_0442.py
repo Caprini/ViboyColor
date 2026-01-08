@@ -1149,6 +1149,8 @@ class ROMSmokeRunner:
             'dominant_ratio': robust_metrics['dominant_ratio'],
             'frame_hash_robust': robust_metrics['frame_hash'],
             'hash_changed': robust_metrics['hash_changed'],
+            # Step 0494: CGB Palette Proof
+            'CGBPaletteProof': cgb_palette_proof if 'cgb_palette_proof' in locals() else {},
             # Step 0463: Modo tile data y tilemap base
             'bg_tile_data_mode': bg_tile_data_mode,
             'bg_tilemap_base': bg_tilemap_base,
@@ -2016,8 +2018,10 @@ class ROMSmokeRunner:
                         three_buf_stats_str = f"ERROR: {e}"
                 
                 # Step 0489: CGBPaletteWriteStats (gateado por VIBOY_DEBUG_CGB_PALETTE_WRITES=1)
+                # Step 0494: Reforzado con decode de palette0[0..3] y nonwhite entries
                 cgb_pal_stats = None
                 cgb_pal_stats_str = "N/A"
+                cgb_palette_proof = {}  # Step 0494: CGB Palette Proof
                 if os.getenv("VIBOY_DEBUG_CGB_PALETTE_WRITES") == "1":
                     try:
                         cgb_pal_stats = self.mmu.get_cgb_palette_write_stats()
@@ -2030,8 +2034,70 @@ class ROMSmokeRunner:
                                                 f"OBPD_LastPC=0x{cgb_pal_stats['last_obpd_write_pc']:04X} "
                                                 f"OBPD_LastVal=0x{cgb_pal_stats['last_obpd_value']:02X} "
                                                 f"OBPI=0x{cgb_pal_stats['last_obpi']:02X}")
+                            
+                            # --- Step 0494: Decode de palette0[0..3] (primeras 4 entradas de BG palette 0) ---
+                            palette0_decode = []
+                            try:
+                                for color_idx in range(4):
+                                    base = 0 * 8 + color_idx * 2  # Palette 0, color color_idx
+                                    lo = self.mmu.read_bg_palette_data(base)
+                                    hi = self.mmu.read_bg_palette_data(base + 1)
+                                    bgr555 = lo | (hi << 8)
+                                    
+                                    # Extraer componentes BGR555
+                                    r5 = (bgr555 >> 0) & 0x1F
+                                    g5 = (bgr555 >> 5) & 0x1F
+                                    b5 = (bgr555 >> 10) & 0x1F
+                                    
+                                    # Convertir a RGB888
+                                    r = int((r5 * 255) / 31)
+                                    g = int((g5 * 255) / 31)
+                                    b = int((b5 * 255) / 31)
+                                    
+                                    palette0_decode.append({
+                                        'color_idx': color_idx,
+                                        'bgr555': f'0x{bgr555:04X}',
+                                        'rgb888': f'({r},{g},{b})',
+                                    })
+                            except (AttributeError, TypeError) as e:
+                                palette0_decode = [{'error': str(e)}]
+                            
+                            # --- Step 0494: Nonwhite entries (contar paletas con al menos un color no-blanco) ---
+                            bg_palette_nonwhite_entries = 0
+                            try:
+                                for palette_id in range(8):
+                                    has_nonwhite = False
+                                    for color_idx in range(4):
+                                        base = palette_id * 8 + color_idx * 2
+                                        lo = self.mmu.read_bg_palette_data(base)
+                                        hi = self.mmu.read_bg_palette_data(base + 1)
+                                        bgr555 = lo | (hi << 8)
+                                        
+                                        # Verificar si es blanco (0x7FFF en BGR555)
+                                        if bgr555 != 0x7FFF:
+                                            has_nonwhite = True
+                                            break
+                                    if has_nonwhite:
+                                        bg_palette_nonwhite_entries += 1
+                            except (AttributeError, TypeError):
+                                bg_palette_nonwhite_entries = 0
+                            
+                            # Construir CGB Palette Proof
+                            cgb_palette_proof = {
+                                'bgpd_write_count': cgb_pal_stats['bgpd_write_count'],
+                                'obpd_write_count': cgb_pal_stats['obpd_write_count'],
+                                'last_bgpd_write_pc': cgb_pal_stats['last_bgpd_write_pc'],
+                                'last_bgpd_value': cgb_pal_stats['last_bgpd_value'],
+                                'last_bgpi': cgb_pal_stats['last_bgpi'],
+                                'last_obpd_write_pc': cgb_pal_stats['last_obpd_write_pc'],
+                                'last_obpd_value': cgb_pal_stats['last_obpd_value'],
+                                'last_obpi': cgb_pal_stats['last_obpi'],
+                                'palette0_decode': palette0_decode,  # Step 0494
+                                'bg_palette_nonwhite_entries': bg_palette_nonwhite_entries,  # Step 0494
+                            }
                     except (AttributeError, TypeError, KeyError) as e:
                         cgb_pal_stats_str = f"ERROR: {e}"
+                        cgb_palette_proof = {'error': str(e)}
                 
                 # Step 0489: DMGTileFetchStats (gateado por VIBOY_DEBUG_DMG_TILE_FETCH=1)
                 dmg_tile_stats = None
@@ -2152,6 +2218,44 @@ class ROMSmokeRunner:
                                    f"CGB_BG_NonWhite={palette_stats.get('cgb_bg_palette_nonwhite_entries', 0)} "
                                    f"CGB_OB_NonWhite={palette_stats.get('cgb_obj_palette_nonwhite_entries', 0)}")
                 
+                # --- Step 0494: IRQReality section (siempre, no solo en AfterClear) ---
+                irq_reality_snapshot = {}
+                try:
+                    # Obtener interrupt_taken_counts
+                    interrupt_taken = self.cpu.get_interrupt_taken_counts()
+                    if interrupt_taken:
+                        irq_reality_snapshot['interrupt_taken_vblank'] = interrupt_taken.get('vblank', 0)
+                        irq_reality_snapshot['interrupt_taken_lcd_stat'] = interrupt_taken.get('lcd_stat', 0)
+                        irq_reality_snapshot['interrupt_taken_timer'] = interrupt_taken.get('timer', 0)
+                        irq_reality_snapshot['interrupt_taken_serial'] = interrupt_taken.get('serial', 0)
+                        irq_reality_snapshot['interrupt_taken_joypad'] = interrupt_taken.get('joypad', 0)
+                    
+                    # Obtener IF/IE tracking
+                    if_ie_tracking = self.mmu.get_if_ie_tracking()
+                    if if_ie_tracking:
+                        irq_reality_snapshot['if_write_count'] = if_ie_tracking.get('if_write_count', 0)
+                        irq_reality_snapshot['ie_write_count'] = if_ie_tracking.get('ie_write_count', 0)
+                        irq_reality_snapshot['last_if_write_pc'] = if_ie_tracking.get('last_if_write_pc', 0)
+                        irq_reality_snapshot['last_ie_write_pc'] = if_ie_tracking.get('last_ie_write_pc', 0)
+                    
+                    # Obtener HRAM[0xFFC5] tracking
+                    hram_ffc5_tracking = self.mmu.get_hram_ffc5_tracking()
+                    if hram_ffc5_tracking:
+                        irq_reality_snapshot['hram_ffc5_write_count'] = hram_ffc5_tracking.get('write_count', 0)
+                        irq_reality_snapshot['hram_ffc5_first_write_frame'] = hram_ffc5_tracking.get('first_write_frame', 0)
+                        irq_reality_snapshot['hram_ffc5_last_write_pc'] = hram_ffc5_tracking.get('last_write_pc', 0)
+                except (AttributeError, TypeError, KeyError) as e:
+                    irq_reality_snapshot = {'error': str(e)}
+                
+                # Construir string de IRQReality para el snapshot
+                irq_reality_str = (f"IRQTaken_VBlank={irq_reality_snapshot.get('interrupt_taken_vblank', 0)} "
+                                 f"IRQTaken_LCD={irq_reality_snapshot.get('interrupt_taken_lcd_stat', 0)} "
+                                 f"IRQTaken_Timer={irq_reality_snapshot.get('interrupt_taken_timer', 0)} "
+                                 f"IF_WriteCount={irq_reality_snapshot.get('if_write_count', 0)} "
+                                 f"IE_WriteCount={irq_reality_snapshot.get('ie_write_count', 0)} "
+                                 f"HRAM_FFC5_WriteCount={irq_reality_snapshot.get('hram_ffc5_write_count', 0)} "
+                                 f"HRAM_FFC5_FirstFrame={irq_reality_snapshot.get('hram_ffc5_first_write_frame', 0)}")
+                
                 print(f"[SMOKE-SNAPSHOT] Frame={frame_idx} | "
                       f"PC=0x{pc:04X} IME={ime} HALTED={halted} | "
                       f"IE=0x{ie:02X} IF=0x{if_reg:02X} | "
@@ -2214,7 +2318,8 @@ class ROMSmokeRunner:
                       f"CGBPaletteWriteStats={cgb_pal_stats_str} | "
                       f"DMGTileFetchStats={dmg_tile_stats_str} | "
                       f"VRAM_Regions_TiledataNZ={vram_tiledata_nonzero} VRAM_Regions_TilemapNZ={vram_tilemap_nonzero} | "
-                      f"VRAMWriteStats={vram_write_stats_str}")
+                      f"VRAMWriteStats={vram_write_stats_str} | "
+                      f"{irq_reality_str}")
                 
                 # --- Step 0493: AfterClear section reforzada ---
                 if vram_write_stats and vram_write_stats.get('tiledata_clear_done_frame', 0) > 0:
@@ -2285,6 +2390,36 @@ class ROMSmokeRunner:
                             except Exception as e:
                                 disasm_hotspot = f"ERROR: {e}"
                         
+                        # --- Step 0494: IRQReality section ---
+                        irq_reality = {}
+                        try:
+                            # Obtener interrupt_taken_counts
+                            interrupt_taken = self.cpu.get_interrupt_taken_counts()
+                            if interrupt_taken:
+                                irq_reality['interrupt_taken_vblank'] = interrupt_taken.get('vblank', 0)
+                                irq_reality['interrupt_taken_lcd_stat'] = interrupt_taken.get('lcd_stat', 0)
+                                irq_reality['interrupt_taken_timer'] = interrupt_taken.get('timer', 0)
+                                irq_reality['interrupt_taken_serial'] = interrupt_taken.get('serial', 0)
+                                irq_reality['interrupt_taken_joypad'] = interrupt_taken.get('joypad', 0)
+                            
+                            # Obtener IRQ trace ring (últimos 10 eventos)
+                            irq_trace = self.cpu.get_irq_trace_ring(10)
+                            if irq_trace:
+                                irq_reality['irq_trace_tail'] = irq_trace
+                            
+                            # Obtener IF/IE tracking
+                            if_ie_tracking = self.mmu.get_if_ie_tracking()
+                            if if_ie_tracking:
+                                irq_reality['if_ie_tracking'] = if_ie_tracking
+                            
+                            # Obtener HRAM[0xFFC5] tracking
+                            hram_ffc5_tracking = self.mmu.get_hram_ffc5_tracking()
+                            if hram_ffc5_tracking:
+                                irq_reality['hram_ffc5_tracking'] = hram_ffc5_tracking
+                        except (AttributeError, TypeError, KeyError) as e:
+                            irq_reality = {'error': str(e)}
+                        # -----------------------------------------
+                        
                         # Clasificación del bloqueo
                         after_clear_snapshot = {
                             'frames_since_clear': frames_since_clear,
@@ -2301,6 +2436,7 @@ class ROMSmokeRunner:
                             'ly': ly_val,
                             'disasm_hotspot_top1': disasm_hotspot,
                             'disasm_branch_dest': disasm_branch_dest,
+                            'IRQReality': irq_reality,  # Step 0494
                         }
                         
                         classification = self._classify_dmg_blockage(after_clear_snapshot)

@@ -58,6 +58,37 @@ struct CGBPaletteWriteStats {
 };
 
 /**
+ * Step 0494: Estructura para tracking de writes a IF/IE.
+ */
+struct IFIETracking {
+    uint16_t last_if_write_pc;
+    uint8_t last_if_write_value;
+    uint8_t last_if_applied_value;
+    uint32_t if_write_count;
+    
+    uint16_t last_ie_write_pc;
+    uint8_t last_ie_write_value;
+    uint8_t last_ie_applied_value;
+    uint32_t ie_write_count;
+    
+    IFIETracking() : last_if_write_pc(0xFFFF), last_if_write_value(0), last_if_applied_value(0),
+                     if_write_count(0), last_ie_write_pc(0xFFFF), last_ie_write_value(0),
+                     last_ie_applied_value(0), ie_write_count(0) {}
+};
+
+/**
+ * Step 0494: Estructura para tracking de writes a HRAM[0xFFC5].
+ */
+struct HRAMFFC5Tracking {
+    uint16_t last_write_pc;
+    uint8_t last_write_value;
+    uint32_t write_count;
+    uint32_t first_write_frame;
+    
+    HRAMFFC5Tracking() : last_write_pc(0xFFFF), last_write_value(0), write_count(0), first_write_frame(0) {}
+};
+
+/**
  * Step 0490: Estructura para estadísticas de writes a VRAM.
  * Step 0491: Ampliada para separar attempts vs nonzero writes + bank + VBK.
  * Step 0492: Ampliada con tracking de Clear VRAM y writes después del clear.
@@ -1103,6 +1134,10 @@ private:
     // Step 0491: mutable para permitir actualización desde métodos const (si es necesario)
     mutable VRAMWriteStats vram_write_stats_;
     
+    // --- Step 0494: Tracking de writes a IF/IE y HRAM[0xFFC5] ---
+    mutable IFIETracking if_ie_tracking_;
+    mutable HRAMFFC5Tracking hram_ffc5_tracking_;
+    
     // --- Step 0486: Contadores JOYP por source y selección ---
     mutable uint32_t joyp_reads_prog_buttons_sel_;   // Program reads con buttons selected (bit4=0)
     mutable uint32_t joyp_reads_prog_dpad_sel_;      // Program reads con dpad selected (bit5=0)
@@ -1938,6 +1973,20 @@ public:
      * @return Referencia constante a VRAMWriteStats con las estadísticas
      */
     const VRAMWriteStats& get_vram_write_stats() const;
+    
+    /**
+     * Step 0494: Obtiene tracking de writes a IF/IE.
+     * 
+     * @return Referencia constante a IFIETracking con el tracking
+     */
+    const IFIETracking& get_if_ie_tracking() const;
+    
+    /**
+     * Step 0494: Obtiene tracking de writes a HRAM[0xFFC5].
+     * 
+     * @return Referencia constante a HRAMFFC5Tracking con el tracking
+     */
+    const HRAMFFC5Tracking& get_hram_ffc5_tracking() const;
 };
 
 #endif // MMU_HPP
