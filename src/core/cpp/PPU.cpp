@@ -2970,11 +2970,28 @@ void PPU::render_scanline() {
 
         uint16_t tile_map_addr = tile_map_base + (map_y / 8) * 32 + (map_x / 8);
         
-        // Step 0466: Corregir semántica read_vram() - pasar addr absoluta (no offset)
+        // --- Step 0499: CGB Tilemap Fix - Leer tile_id de bank 0 siempre en CGB ---
+        // En CGB: tile_id se lee de VRAM bank 0, tile_attr de bank 1
+        // En DMG: solo hay bank 0, usar read_vram() normal
         uint8_t tile_id = 0x00;
         if (tile_map_addr >= 0x8000 && tile_map_addr <= 0x9FFF) {
-            tile_id = mmu_->read_vram(tile_map_addr);
+            HardwareMode hw_mode = mmu_->get_hardware_mode();
+            bool is_cgb = (hw_mode == HardwareMode::CGB);
+            bool dmg_compat_mode = false;
+            if (is_cgb) {
+                dmg_compat_mode = mmu_->get_dmg_compat_mode();
+            }
+            
+            if (is_cgb && !dmg_compat_mode) {
+                // CGB real: leer tile_id de bank 0 siempre
+                uint16_t tile_map_offset = tile_map_addr - 0x8000;
+                tile_id = mmu_->read_vram_bank(0, tile_map_offset);
+            } else {
+                // DMG o dmg_compat_mode: usar read_vram() normal
+                tile_id = mmu_->read_vram(tile_map_addr);
+            }
         }
+        // -----------------------------------------
         
         // --- Step 0392: Instrumentación Zelda DX - Muestra de Tiles ---
         // Log detallado para X específicos (0, 8, 16, 80) en líneas 0 y 72
@@ -3054,14 +3071,28 @@ void PPU::render_scanline() {
         // -------------------------------------------
         
         // --- Step 0389: CGB BG Map Attributes ---
+        // --- Step 0499: Solo leer attrs en CGB real (no DMG ni dmg_compat_mode) ---
         // En CGB, cada tile del BG map tiene un byte de atributos en VRAM bank 1.
         // Bit 3 selecciona el banco VRAM del tile pattern (0 o 1).
         // Otros bits (paleta, flips, prioridad) se ignoran por ahora (implementación mínima).
         // Fuente: Pan Docs - CGB Registers, BG Map Attributes
-        // Calcular offset desde 0x8000 para read_vram_bank()
-        uint16_t tile_map_offset = tile_map_addr - 0x8000;
-        uint8_t tile_attr = mmu_->read_vram_bank(1, tile_map_offset);  // Leer atributo desde bank 1
-        uint8_t tile_bank = (tile_attr >> 3) & 0x01;  // Bit 3: banco del tile pattern
+        HardwareMode hw_mode_attr = mmu_->get_hardware_mode();
+        bool is_cgb_attr = (hw_mode_attr == HardwareMode::CGB);
+        bool dmg_compat_mode_attr = false;
+        if (is_cgb_attr) {
+            dmg_compat_mode_attr = mmu_->get_dmg_compat_mode();
+        }
+        
+        uint8_t tile_attr = 0x00;
+        uint8_t tile_bank = 0;  // Default: bank 0
+        
+        if (is_cgb_attr && !dmg_compat_mode_attr) {
+            // CGB real: leer atributo desde bank 1
+            uint16_t tile_map_offset = tile_map_addr - 0x8000;
+            tile_attr = mmu_->read_vram_bank(1, tile_map_offset);
+            tile_bank = (tile_attr >> 3) & 0x01;  // Bit 3: banco del tile pattern
+        }
+        // En DMG o dmg_compat_mode: tile_bank = 0 (siempre bank 0)
         
         static int cgb_attr_log_count = 0;
         if (cgb_attr_log_count < 50 && ly_ < 3 && x < 16) {

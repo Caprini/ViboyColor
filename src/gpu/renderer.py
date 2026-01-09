@@ -624,6 +624,30 @@ class Renderer:
         Fuente: Pan Docs - LCD Control Register, Background Tile Map, Window
         """
         
+        # --- Step 0499: Event Pumping para evitar "no responde" en modo windowed ---
+        # Detectar si hay ventana real (no headless)
+        has_window = hasattr(self, 'screen') and self.screen is not None
+        
+        if has_window:
+            # Modo windowed: bombear eventos cada frame para evitar "no responde"
+            pygame.event.pump()  # Procesar eventos del sistema (no bloquea)
+            
+            # Verificar eventos QUIT (opcional, pero útil para debugging)
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    print("[Renderer] QUIT event recibido")
+                    # No hacer nada, solo loggear (rom_smoke controla el loop)
+            
+            # Logging limitado (solo primeros 20 frames)
+            if not hasattr(self, '_event_pump_log_count'):
+                self._event_pump_log_count = 0
+            
+            if self._event_pump_log_count < 20:
+                self._event_pump_log_count += 1
+                frame_number = getattr(self, '_path_log_count', 0)
+                print(f"[Renderer-EventPump] Frame {frame_number} | Event pump activo (windowed mode)")
+        # -----------------------------------------
+        
         # --- Step 0497: Frame ID logging ---
         # Obtener frame_id del PPU si está disponible
         frame_id_received = None

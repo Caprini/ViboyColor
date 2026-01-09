@@ -737,7 +737,7 @@ class ROMSmokeRunner:
     def __init__(self, rom_path: str, max_frames: int = 300, 
                  dump_every: int = 0, dump_png: bool = False,
                  max_seconds: int = 120, stop_early_on_first_nonzero: bool = False,
-                 use_renderer_headless: bool = False):
+                 use_renderer_headless: bool = False, use_renderer_windowed: bool = False):
         """
         Inicializa el runner.
         
@@ -749,6 +749,7 @@ class ROMSmokeRunner:
             max_seconds: Timeout máximo de ejecución (segundos)
             stop_early_on_first_nonzero: Si True, parar cuando tiledata_first_nonzero_frame exista
             use_renderer_headless: Si True, usar renderer headless para capturar FB_PRESENT_SRC (Step 0497)
+            use_renderer_windowed: Si True, usar renderer windowed (para testing event pumping) (Step 0499)
         """
         self.rom_path = Path(rom_path)
         self.max_frames = max_frames
@@ -757,7 +758,14 @@ class ROMSmokeRunner:
         self.max_seconds = max_seconds
         self.stop_early_on_first_nonzero = stop_early_on_first_nonzero
         self.use_renderer_headless = use_renderer_headless
+        self.use_renderer_windowed = use_renderer_windowed
         self._renderer = None
+        
+        # Step 0499: Si windowed, forzar SDL_VIDEODRIVER normal (no dummy)
+        if self.use_renderer_windowed:
+            import os
+            os.environ.pop('SDL_VIDEODRIVER', None)  # Quitar dummy si existe
+            os.environ.pop('VIBOY_HEADLESS', None)   # Quitar headless si existe
         
         # Validar ROM
         if not self.rom_path.exists():
@@ -871,6 +879,7 @@ class ROMSmokeRunner:
             self.mmu.write(addr, value)
         
         # --- Step 0497: Crear renderer headless si está activo ---
+        # --- Step 0499: Añadir soporte para renderer windowed ---
         if self.use_renderer_headless:
             try:
                 import os
@@ -885,6 +894,22 @@ class ROMSmokeRunner:
                 print(f"[ROM-SMOKE] Renderer headless creado para capturar FB_PRESENT_SRC")
             except Exception as e:
                 print(f"[ROM-SMOKE] ⚠️ ADVERTENCIA: No se pudo crear renderer headless: {e}")
+                import traceback
+                traceback.print_exc()
+                self._renderer = None
+        elif self.use_renderer_windowed:
+            try:
+                import os
+                # Asegurar que no hay variables de entorno que fuercen headless
+                os.environ.pop('SDL_VIDEODRIVER', None)
+                os.environ.pop('VIBOY_HEADLESS', None)
+                
+                from src.gpu.renderer import Renderer
+                # Crear renderer en modo windowed (con ventana real)
+                self._renderer = Renderer(mmu=self.mmu, use_cpp_ppu=True, ppu=self.ppu, joypad=self.joypad)
+                print(f"[ROM-SMOKE] Renderer windowed creado para testing event pumping")
+            except Exception as e:
+                print(f"[ROM-SMOKE] ⚠️ ADVERTENCIA: No se pudo crear renderer windowed: {e}")
                 import traceback
                 traceback.print_exc()
                 self._renderer = None
@@ -2871,6 +2896,28 @@ class ROMSmokeRunner:
                       f"{irq_reality_str} | "  # Step 0494: IRQReality
                       f"PresentDetails=fmt={present_details.get('present_fmt', 0)} pitch={present_details.get('present_pitch', 0)} w={present_details.get('present_w', 0)} h={present_details.get('present_h', 0)} bytes_len={present_details.get('present_bytes_len', 0)}")  # Step 0496: PresentDetails
                 
+                # --- Step 0499: DMG Quick Classifier (solo para DMG) ---
+                dmg_classification_str = ""
+                try:
+                    # Detectar si es DMG
+                    is_cgb = False
+                    if hasattr(self.mmu, 'get_hardware_mode'):
+                        hardware_mode = self.mmu.get_hardware_mode()
+                        is_cgb = (hardware_mode == "CGB")
+                    
+                    if not is_cgb:
+                        # Solo para DMG: ejecutar clasificador rápido
+                        dmg_classification, dmg_details = self._classify_dmg_quick(self.ppu, self.mmu, self._renderer)
+                        dmg_classification_str = f"DMGQuickClassifier={dmg_classification} "
+                        for key, value in dmg_details.items():
+                            dmg_classification_str += f"DMG_{key}={value} "
+                except Exception as e:
+                    dmg_classification_str = f"DMGQuickClassifier=ERROR({str(e)[:50]}) "
+                
+                if dmg_classification_str:
+                    print(f"[SMOKE-SNAPSHOT-DMG] {dmg_classification_str}")
+                # -----------------------------------------
+                
                 # --- Step 0493: AfterClear section reforzada ---
                 if vram_write_stats and vram_write_stats.get('tiledata_clear_done_frame', 0) > 0:
                     clear_frame = vram_write_stats['tiledata_clear_done_frame']
@@ -3103,6 +3150,105 @@ class ROMSmokeRunner:
         
         # Si no encaja en ningún caso, retornar None
         return None
+    
+    def _classify_dmg_quick(self, ppu, mmu, renderer=None):
+        """
+        Step 0499: Clasifica rápidamente el estado DMG para diagnóstico.
+        
+        Args:
+            ppu: Instancia de PPU
+            mmu: Instancia de MMU
+            renderer: Instancia de Renderer (opcional)
+        
+        Returns:
+            Tupla (classification, details) donde:
+            - classification: String con la clasificación
+            - details: Dict con detalles específicos
+        """
+        # Obtener métricas existentes
+        three_buf_stats = {}
+        try:
+            if hasattr(ppu, 'get_three_buffer_stats'):
+                three_buf_stats = ppu.get_three_buffer_stats() or {}
+        except:
+            pass
+        
+        lcdc = mmu.read(0xFF40)
+        lcd_on = (lcdc & 0x80) != 0
+        
+        # VRAM stats
+        vram_write_stats = {}
+        try:
+            if hasattr(mmu, 'get_vram_write_stats'):
+                vram_write_stats = mmu.get_vram_write_stats() or {}
+        except:
+            pass
+        
+        # PC hotspots (del snapshot AfterClear si existe)
+        pc_hotspot_1 = None
+        hotspot_count = 0
+        try:
+            # Intentar obtener de algún snapshot o tracking
+            if hasattr(mmu, 'get_pc_hotspots'):
+                hotspots = mmu.get_pc_hotspots()
+                if hotspots and len(hotspots) > 0:
+                    pc_hotspot_1, hotspot_count = hotspots[0]
+        except:
+            pass
+        
+        # Clasificar
+        classification = "UNKNOWN"
+        details = {}
+        
+        # 1. CPU no progresa / se queda en loop duro
+        if pc_hotspot_1 is not None and hotspot_count > 100000:
+            classification = "CPU_LOOP"
+            details['hotspot_pc'] = f'0x{pc_hotspot_1:04X}'
+            details['hotspot_count'] = hotspot_count
+            return classification, details
+        
+        # 2. Progresa pero LCDC OFF
+        if not lcd_on:
+            classification = "LCDC_OFF"
+            details['lcdc'] = f'0x{lcdc:02X}'
+            return classification, details
+        
+        # 3. Progresa, LCDC ON, pero VRAM tiledata se queda en cero
+        if vram_write_stats:
+            tiledata_nonzero = vram_write_stats.get('tiledata_nonzero_bank0', 0)
+            if tiledata_nonzero == 0:
+                classification = "VRAM_TILEDATA_ZERO"
+                details['tiledata_nonzero'] = 0
+                return classification, details
+        
+        # 4. Progresa, hay tiledata no-zero, pero fetch o render no lo usa
+        if three_buf_stats:
+            idx_nonzero = three_buf_stats.get('idx_nonzero', 0)
+            if idx_nonzero == 0:
+                classification = "IDX_ZERO_DESPITE_TILEDATA"
+                details['idx_nonzero'] = 0
+                if vram_write_stats:
+                    details['tiledata_nonzero'] = vram_write_stats.get('tiledata_nonzero_bank0', 0)
+                return classification, details
+        
+        # 5. Progresa, produce IDX no-zero, pero RGB/present falla
+        if three_buf_stats:
+            idx_nonzero = three_buf_stats.get('idx_nonzero', 0)
+            rgb_nonwhite = three_buf_stats.get('rgb_nonwhite_count', 0)
+            if idx_nonzero > 0 and rgb_nonwhite == 0:
+                classification = "RGB_FAIL_DESPITE_IDX"
+                details['idx_nonzero'] = idx_nonzero
+                details['rgb_nonwhite'] = rgb_nonwhite
+                return classification, details
+        
+        # 6. Todo parece OK (pero sigue blanco - puede ser timing/init)
+        classification = "OK_BUT_WHITE"
+        details['lcdc'] = f'0x{lcdc:02X}'
+        if three_buf_stats:
+            details['idx_nonzero'] = three_buf_stats.get('idx_nonzero', 0)
+            details['rgb_nonwhite'] = three_buf_stats.get('rgb_nonwhite_count', 0)
+        
+        return classification, details
     
     def _classify_dmg_blockage(self, after_clear_snapshot: dict) -> str:
         """
@@ -3614,6 +3760,8 @@ def main():
                         help="Parar cuando tiledata_first_nonzero_frame exista (Step 0492)")
     parser.add_argument("--use-renderer-headless", action="store_true",
                         help="Usar renderer headless para capturar FB_PRESENT_SRC (Step 0497)")
+    parser.add_argument("--use-renderer-windowed", action="store_true",
+                        help="Usar renderer windowed (para testing event pumping) (Step 0499)")
     
     args = parser.parse_args()
     
@@ -3625,7 +3773,8 @@ def main():
             dump_png=args.dump_png,
             max_seconds=args.max_seconds,
             stop_early_on_first_nonzero=args.stop_early_on_first_nonzero,
-            use_renderer_headless=args.use_renderer_headless
+            use_renderer_headless=args.use_renderer_headless,
+            use_renderer_windowed=args.use_renderer_windowed
         )
         runner.run()
     except Exception as e:
