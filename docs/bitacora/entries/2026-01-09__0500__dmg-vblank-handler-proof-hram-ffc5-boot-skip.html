@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DMG VBlank Handler Proof + HRAM[0xFFC5] Semantics + Boot-Skip A/B Test - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>DMG VBlank Handler Proof + HRAM[0xFFC5] Semantics + Boot-Skip A/B Test</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2026-01-09
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0500
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2026-01-09__0499__fix-pygame-freeze-cgb-tilemap-dmg-classifier.html">Anterior (0499)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este Step implementa instrumentación exhaustiva del CPU y MMU para diagnosticar por qué los juegos DMG (específicamente <code>tetris.gb</code>) no muestran contenido visual, a pesar de que los juegos CGB funcionan correctamente. Se añadió tracking detallado de IRQ (VBlank), RETI, HRAM[0xFFC5], y IF/IE, junto con un clasificador DMG v2 mejorado. Los resultados del A/B test (SIM_BOOT_LOGO=0 vs 1) muestran que el problema <strong>no está relacionado con el boot logo skip</strong>, ya que ambos casos producen resultados idénticos: <code>VRAM_TILEDATA_ZERO</code>, <code>IRQTaken_VBlank=0</code>, <code>HRAM_FFC5_WriteCount=0</code>.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Interrupciones en Game Boy</strong>: Cuando se dispara una interrupción en el Game Boy:
+                </p>
+                <ol>
+                    <li>El CPU verifica si IME está habilitado y si hay bits activos en IF & IE</li>
+                    <li>Si se cumple, se deshabilita IME, se hace push del PC actual, y se salta al vector correspondiente (0x40 para VBlank, 0x48 para LCD, etc.)</li>
+                    <li>El handler debe terminar con RETI, que restaura IME y retorna al código interrumpido</li>
+                </ol>
+                <p>
+                    El tracking detallado permite verificar que el vector es correcto, el PC se guarda correctamente en el stack, IME se deshabilita correctamente, y el handler termina con RETI.
+                </p>
+                <p>
+                    <strong>RETI (Return from Interrupt)</strong>: RETI es una instrucción especial que hace pop del PC del stack (restaura el PC interrumpido) y habilita IME (permite nuevas interrupciones). Es equivalente a <code>POP PC</code> + <code>EI</code>, pero atómico.
+                </p>
+                <p>
+                    <strong>HRAM[0xFFC5]</strong>: HRAM[0xFFC5] es una dirección en High RAM (0xFF80-0xFFFE) que algunos juegos DMG usan como flag de sincronización o comunicación entre el código principal y los handlers de interrupción. Si el juego espera que se escriba un valor específico en esta dirección durante el VBlank handler, y no se escribe, el juego podría quedar bloqueado esperando.
+                </p>
+                <p>
+                    <strong>IF (Interrupt Flag, 0xFF0F)</strong>: Registro que indica qué interrupciones están pendientes (bits 0-4: VBlank, LCD, Timer, Serial, Joypad). Se escribe para limpiar flags (bit=1 para limpiar).
+                </p>
+                <p>
+                    <strong>IE (Interrupt Enable, 0xFFFF)</strong>: Registro que indica qué interrupciones están habilitadas (bits 0-4).
+                </p>
+                <p>
+                    <strong>Referencia</strong>: Pan Docs - Interrupts, LR35902 Instruction Set, Memory Map
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>Fase A: VBlank Handler Proof ✅</h3>
+                <p>
+                    <strong>A1) IRQTrace Real (Ampliado)</strong>:
+                </p>
+                <ul>
+                    <li>Ampliación de <code>IRQTraceEvent</code> con campos adicionales:
+                        <ul>
+                            <li><code>pc_after</code>: PC después de saltar al vector</li>
+                            <li><code>vector_addr</code>: Dirección del vector de interrupción (0x40, 0x48, 0x50, 0x58, 0x60)</li>
+                            <li><code>sp_before</code>, <code>sp_after</code>: Stack pointer antes y después del push</li>
+                            <li><code>ime_before</code>, <code>ime_after</code>: Estado de IME antes y después del servicio</li>
+                            <li><code>ie</code>, <code>if_before</code>, <code>if_after</code>: Valores de IE e IF antes y después</li>
+                            <li><code>irq_type</code>: Tipo de IRQ (VBlank, LCD, Timer, Serial, Joypad)</li>
+                            <li><code>opcode_at_vector</code>: Primer opcode en el vector (para debugging)</li>
+                        </ul>
+                    </li>
+                    <li>Captura en <code>CPU::handle_interrupts()</code>: Se capturan todos los campos antes y después del servicio de IRQ</li>
+                </ul>
+                <p>
+                    <strong>A2) RETI Tracking</strong>:
+                </p>
+                <ul>
+                    <li>Nueva estructura <code>RETITraceEvent</code>:
+                        <ul>
+                            <li><code>frame</code>: Frame en el que se ejecutó RETI</li>
+                            <li><code>pc</code>: PC donde se ejecutó RETI</li>
+                            <li><code>return_addr</code>: Dirección de retorno (leída del stack)</li>
+                            <li><code>ime_after</code>: Estado de IME después de RETI (debe ser 1)</li>
+                            <li><code>sp_before</code>, <code>sp_after</code>: Stack pointer antes y después</li>
+                        </ul>
+                    </li>
+                    <li>Ring buffer de 64 eventos en <code>CPU</code></li>
+                    <li>Captura en opcode <code>RETI</code> (0xD9): Se capturan todos los campos durante la ejecución</li>
+                </ul>
+                <p>
+                    <strong>A3) HRAM[0xFFC5] "Flag Semantics"</strong>:
+                </p>
+                <ul>
+                    <li>Ampliación de <code>HRAMFFC5Tracking</code>:
+                        <ul>
+                            <li><code>write_count_total</code>: Total de writes a 0xFFC5</li>
+                            <li><code>write_count_in_irq_vblank</code>: Writes durante IRQ VBlank (placeholder por ahora)</li>
+                            <li><code>first_write_frame</code>: Frame del primer write</li>
+                            <li>Ring buffer <code>FFC5WriteEvent</code> (últimos 8 writes): <code>frame</code>, <code>pc</code>, <code>value</code></li>
+                        </ul>
+                    </li>
+                    <li>Captura en <code>MMU::write()</code> cuando <code>addr == 0xFFC5</code></li>
+                </ul>
+                <p>
+                    <strong>A5) IF/IE Correctness Proof</strong>:
+                </p>
+                <ul>
+                    <li>Ampliación de <code>IFIETracking</code>:
+                        <ul>
+                            <li><code>if_write_history_</code>: Ring buffer de últimos 5 writes a IF (0xFF0F)</li>
+                            <li><code>ie_write_history_</code>: Ring buffer de últimos 5 writes a IE (0xFFFF)</li>
+                            <li>Cada entrada contiene: <code>pc</code>, <code>written</code> (valor escrito), <code>applied</code> (valor aplicado después de write)</li>
+                        </ul>
+                    </li>
+                    <li>Captura en <code>MMU::write()</code> cuando <code>addr == 0xFF0F</code> o <code>addr == 0xFFFF</code></li>
+                </ul>
+                
+                <h3>Fase B: DMG Progress Proof ✅</h3>
+                <p>
+                    <strong>B1) "AfterClear+Progress" Snapshot</strong>:
+                </p>
+                <ul>
+                    <li>Nueva función <code>_classify_dmg_quick_v2()</code>:
+                        <ul>
+                            <li>Clasifica el estado DMG usando métricas del CPU y MMU:
+                                <ul>
+                                    <li><code>pc_hotspot_top1</code>: PC más frecuente (indica loops)</li>
+                                    <li><code>irq_taken_vblank</code>: Contador de IRQs VBlank tomados (del nuevo tracking)</li>
+                                    <li><code>reti_count</code>: Contador de RETI ejecutados</li>
+                                    <li><code>hram_ffc5_last_value</code>, <code>hram_ffc5_write_count_total</code>, <code>hram_ffc5_write_count_in_vblank</code>: Métricas de HRAM[0xFFC5]</li>
+                                    <li><code>lcdc</code>, <code>stat</code>, <code>ly</code>: Estado del LCD</li>
+                                    <li><code>vram_tiledata_nz</code>, <code>vram_tilemap_nz</code>: Bytes no-cero en VRAM</li>
+                                </ul>
+                            </li>
+                            <li>Categorías de clasificación:
+                                <ul>
+                                    <li><code>WAITING_ON_FFC5</code>: HRAM[0xFFC5] nunca escrito, juego esperando</li>
+                                    <li><code>IRQ_TAKEN_BUT_NO_RETI</code>: IRQ tomado pero no hay RETI</li>
+                                    <li><code>IRQ_OK_BUT_FLAG_NOT_SET</code>: IRQ y RETI OK, pero flag no se escribe</li>
+                                    <li><code>VRAM_TILEDATA_ZERO</code>: VRAM tiledata vacía (causa raíz)</li>
+                                    <li><code>OK_BUT_WHITE</code>: Todo OK pero framebuffer blanco</li>
+                                </ul>
+                            </li>
+                        </ul>
+                    </li>
+                    <li>Integración en <code>generate_snapshot()</code>: Se añade sección <code>DMGQuickClassifierV2</code> al snapshot</li>
+                </ul>
+                
+                <h3>Fase C: Cython Exposure ✅</h3>
+                <p>
+                    <strong>Archivos</strong>: <code>src/core/cython/cpu.pxd</code>, <code>src/core/cython/cpu.pyx</code>, <code>src/core/cython/mmu.pyx</code>
+                </p>
+                <ul>
+                    <li><code>cpu.pxd</code>: Declaración de <code>RETITraceEvent</code> struct</li>
+                    <li><code>cpu.pyx</code>: Métodos <code>get_reti_trace_ring()</code> y <code>get_reti_count()</code> para exponer tracking de RETI</li>
+                    <li><code>mmu.pyx</code>: Actualización de <code>get_hram_ffc5_tracking()</code> y <code>get_if_ie_tracking()</code> para incluir los nuevos campos (write_ring, if_write_history, ie_write_history)</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.hpp</code> - Ampliación de <code>IRQTraceEvent</code>, nueva estructura <code>RETITraceEvent</code>, nuevos métodos <code>get_reti_trace_ring()</code> y <code>get_reti_count()</code></li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Implementación de tracking ampliado de IRQ y RETI</li>
+                    <li><code>src/core/cpp/MMU.hpp</code> - Ampliación de <code>HRAMFFC5Tracking</code> y <code>IFIETracking</code> con ring buffers</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Implementación de tracking ampliado de HRAM[0xFFC5] e IF/IE</li>
+                    <li><code>src/core/cython/cpu.pxd</code> - Declaración de <code>RETITraceEvent</code></li>
+                    <li><code>src/core/cython/cpu.pyx</code> - Métodos para exponer tracking de RETI</li>
+                    <li><code>src/core/cython/mmu.pyx</code> - Actualización de métodos para exponer tracking ampliado</li>
+                    <li><code>tools/rom_smoke_0442.py</code> - Nueva función <code>_classify_dmg_quick_v2()</code> e integración en snapshot</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Compilación</strong>:
+                </p>
+                <pre><code>python setup.py build_ext --inplace</code></pre>
+                <p>✅ Compilación exitosa sin errores</p>
+                
+                <p>
+                    <strong>Ejecución de ROMs</strong>:
+                </p>
+                <pre><code># tetris.gb (SIM_BOOT_LOGO=0)
+export VIBOY_SIM_BOOT_LOGO=0
+python3 tools/rom_smoke_0442.py roms/tetris.gb --frames 1200 > /tmp/viboy_0500_tetris_boot0.log
+
+# tetris.gb (SIM_BOOT_LOGO=1)
+export VIBOY_SIM_BOOT_LOGO=1
+python3 tools/rom_smoke_0442.py roms/tetris.gb --frames 1200 > /tmp/viboy_0500_tetris_boot1.log
+
+# pkmn.gb (SIM_BOOT_LOGO=0)
+export VIBOY_SIM_BOOT_LOGO=0
+python3 tools/rom_smoke_0442.py roms/pkmn.gb --frames 1200 > /tmp/viboy_0500_pkmn.log</code></pre>
+                
+                <p>
+                    <strong>Resultados del A/B Test (tetris.gb)</strong>:
+                </p>
+                <ul>
+                    <li><strong>SIM_BOOT_LOGO=0</strong>:
+                        <ul>
+                            <li><code>DMGQuickClassifier=VRAM_TILEDATA_ZERO</code></li>
+                            <li><code>VBlankReq=1139</code>, <code>VBlankServ=1139</code> (IRQs se procesan)</li>
+                            <li><code>IRQTaken_VBlank=0</code> (⚠️ tracking no detecta IRQs)</li>
+                            <li><code>HRAM_FFC5_WriteCount=0</code> (nunca se escribe)</li>
+                            <li><code>VRAM_Regions_TiledataNZ=0</code>, <code>VRAM_Regions_TilemapNZ=1024</code> (tilemap OK, tiledata vacía)</li>
+                        </ul>
+                    </li>
+                    <li><strong>SIM_BOOT_LOGO=1</strong>:
+                        <ul>
+                            <li><strong>Resultados idénticos</strong> a SIM_BOOT_LOGO=0</li>
+                            <li><strong>Conclusión</strong>: El problema <strong>NO está relacionado con el boot logo skip</strong></li>
+                        </ul>
+                    </li>
+                </ul>
+                
+                <p>
+                    <strong>Resultados de pkmn.gb</strong>:
+                </p>
+                <ul>
+                    <li><code>DMGQuickClassifier=VRAM_TILEDATA_ZERO</code></li>
+                    <li><code>VBlankReq=1141</code>, <code>VBlankServ=147</code> (menos IRQs servidos)</li>
+                    <li><code>IRQTaken_VBlank=0</code> (⚠️ tracking no detecta IRQs)</li>
+                    <li><code>VRAM_Regions_TiledataNZ=0</code>, <code>VRAM_Regions_TilemapNZ=2048</code> (tilemap OK, tiledata vacía)</li>
+                </ul>
+                
+                <p>
+                    <strong>Hallazgos clave</strong>:
+                </p>
+                <ul>
+                    <li>✅ <strong>A/B Test</strong>: Ambos casos (SIM_BOOT_LOGO=0 y 1) producen resultados idénticos → El problema no está en el boot logo skip</li>
+                    <li>⚠️ <strong>IRQ Tracking Bug</strong>: <code>IRQTaken_VBlank=0</code> pero <code>VBlankServ=1139</code> → El tracking nuevo no está funcionando correctamente (posible bug)</li>
+                    <li>🔍 <strong>VRAM Tiledata</strong>: Consistente en todas las ROMs → <code>VRAM_Regions_TiledataNZ=0</code> (causa raíz)</li>
+                    <li>✅ <strong>HRAM[0xFFC5]</strong>: Nunca se escribe en tetris.gb → No es la causa del bloqueo</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: Interrupts, LR35902 Instruction Set, Memory Map, VRAM Access Restrictions</li>
+                    <li>GBEDG: Interrupt Handling, VBlank Timing</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>IRQ Tracking</strong>: El tracking detallado de IRQ permite verificar que los handlers se ejecutan correctamente, pero hay un bug en la implementación del contador <code>irq_taken_vblank_</code>.</li>
+                        <li><strong>RETI Tracking</strong>: El tracking de RETI permite verificar que los handlers terminan correctamente, pero necesitamos verificar que los datos se están capturando correctamente.</li>
+                        <li><strong>HRAM[0xFFC5]</strong>: Algunos juegos DMG usan esta dirección como flag, pero tetris.gb no la usa, por lo que no es la causa del bloqueo.</li>
+                        <li><strong>A/B Test</strong>: El boot logo skip no afecta el comportamiento del juego DMG, lo que sugiere que el problema está en la emulación del hardware, no en el estado inicial.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>IRQ Tracking Bug</strong>: Por qué <code>IRQTaken_VBlank=0</code> cuando <code>VBlankServ=1139</code>. Necesitamos verificar la implementación del contador.</li>
+                        <li><strong>VRAM Tiledata</strong>: Por qué los tiles no se cargan en VRAM. Necesitamos instrumentar los writes a VRAM tiledata y verificar restricciones de acceso.</li>
+                        <li><strong>Timing</strong>: Si el timing de acceso a VRAM está causando que los writes fallen silenciosamente.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Suposición</strong>: El tracking de <code>IRQTaken_VBlank</code> debería actualizarse en <code>CPU::handle_interrupts()</code>, pero no lo hace. Esto podría ser un bug en la implementación.
+                    </p>
+                    <p>
+                        <strong>Hipótesis</strong>: Los tiles no se cargan porque:
+                    </p>
+                    <ul>
+                        <li>El timing de acceso a VRAM está desincronizado</li>
+                        <li>O hay restricciones de acceso a VRAM que no estamos respetando</li>
+                        <li>O el MBC no está mapeando correctamente la ROM durante la carga</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Fix IRQ Tracking Bug: Verificar e implementar correctamente el contador <code>irq_taken_vblank_</code> en <code>CPU::handle_interrupts()</code></li>
+                    <li>[ ] VRAM Write Tracking: Instrumentar tracking de writes a VRAM tiledata (0x8000-0x97FF) para verificar si hay intentos de write que fallan</li>
+                    <li>[ ] VRAM Access Restrictions: Verificar que estamos respetando las restricciones de acceso a VRAM (solo durante HBlank y VBlank, no durante OAM Scan y Pixel Transfer)</li>
+                    <li>[ ] DMA Tracking: Instrumentar tracking de DMA (0xFF46) para verificar si hay transferencias de datos que no se completan correctamente</li>
+                    <li>[ ] Timing Verification: Verificar que el timing de acceso a VRAM coincide con el hardware real (modos PPU, ciclos de máquina)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>

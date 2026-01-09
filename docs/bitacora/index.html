@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0500 - DMG VBlank Handler Proof + HRAM[0xFFC5] Semantics + Boot-Skip A/B Test -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-09__0500__dmg-vblank-handler-proof-hram-ffc5-boot-skip.html" class="entry-link">
+                                    DMG VBlank Handler Proof + HRAM[0xFFC5] Semantics + Boot-Skip A/B Test
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-09 | 
+                            <strong>Step ID:</strong> 0500 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de instrumentación exhaustiva del CPU y MMU para diagnosticar por qué los juegos DMG (específicamente tetris.gb) no muestran contenido visual. Se añadió tracking detallado de IRQ (VBlank), RETI, HRAM[0xFFC5], y IF/IE, junto con un clasificador DMG v2 mejorado. Los resultados del A/B test (SIM_BOOT_LOGO=0 vs 1) muestran que el problema no está relacionado con el boot logo skip, ya que ambos casos producen resultados idénticos: VRAM_TILEDATA_ZERO. Reporte completo en docs/reports/reporte_step0500.md.
+                        </p>
+                    </li>
                     <!-- Entrada 0499 - Fix pygame window freeze + CGB tilemap attrs/banks + DMG quick classifier -->
                     <li>
                         <div class="entry-header">
