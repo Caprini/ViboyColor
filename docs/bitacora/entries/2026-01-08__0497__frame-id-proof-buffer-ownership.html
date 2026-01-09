@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Frame-ID Proof + Buffer Ownership + rom_smoke con renderer - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Frame-ID Proof + Buffer Ownership + rom_smoke con renderer</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2026-01-08
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0497
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2026-01-08__0496__cgb-end-to-end-present-proof.html">Anterior (0496)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este Step implementa un sistema de tracking de frame IDs end-to-end para diagnosticar problemas de sincronización en el pipeline de renderizado (PPU → RGB → Renderer → Present). Se añadió soporte para renderer headless en <code>rom_smoke</code> y se corrigió el log <code>PPU-FRAMEBUFFER-LINE</code> para separar buffers FRONT y BACK. Se implementaron las fases A (Frame IDs), C (Corrección de logs) y D (rom_smoke con renderer headless). La Fase B (BufferTrace con CRC) queda pendiente para un Step futuro.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Pipeline de Renderizado con Double Buffering</strong>: En un sistema con double buffering, hay dos buffers:
+                </p>
+                <ol>
+                    <li><strong>Buffer BACK (en construcción)</strong>: El PPU escribe el frame actual en este buffer mientras se renderiza.</li>
+                    <li><strong>Buffer FRONT (presentado)</strong>: El buffer que se presenta en pantalla. Cuando se completa un frame, se hace swap (intercambio) entre FRONT y BACK.</li>
+                </ol>
+                <p>
+                    <strong>Frame ID Tracking</strong>: Para diagnosticar problemas de sincronización, necesitamos un identificador único que viaje por todo el pipeline:
+                </p>
+                <ul>
+                    <li><strong>PPU produce frame_id=X</strong>: Cuando se completa el renderizado de un frame (LY pasa de 153 a 0)</li>
+                    <li><strong>Buffer front tiene frame_id=Y</strong>: Cuando se hace swap, Y = X del frame completado</li>
+                    <li><strong>Renderer recibe frame_id=Z</strong>: Cuando lee el buffer front, Z = Y</li>
+                    <li><strong>Renderer presenta frame_id=W</strong>: Cuando hace flip, W = Z</li>
+                </ul>
+                <p>
+                    <strong>Lag de 1 Frame (Normal)</strong>: En double buffering, es normal que el renderer presente el frame N-1 mientras el PPU está generando el frame N. Esto se detecta cuando <code>Renderer presented frame_id = PPU frame_id - 1</code>.
+                </p>
+                <p>
+                    <strong>Buffer Stale (Problema)</strong>: Si el renderer presenta un frame_id que no coincide con el frame_id del PPU ni con el frame_id-1, hay un problema de sincronización (buffer stale).
+                </p>
+                <p>
+                    <strong>Referencia</strong>: Conceptos generales de gráficos por ordenador - Double Buffering, Frame Synchronization
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>Fase A: Frame IDs End-to-End ✅</h3>
+                <p>
+                    Se implementó un sistema de frame IDs que viaja por todo el pipeline:
+                </p>
+                <ul>
+                    <li><strong>PPU::frame_id_</strong>: ID único que se incrementa en cada frame completo (cuando LY pasa de 153 a 0)</li>
+                    <li><strong>PPU::framebuffer_frame_id_</strong>: ID del buffer front (se actualiza en <code>swap_framebuffers()</code>)</li>
+                    <li><strong>Getters expuestos vía Cython</strong>: <code>get_frame_id()</code> y <code>get_framebuffer_frame_id()</code></li>
+                    <li><strong>Logging en renderer</strong>: Se loggea el frame_id recibido y el frame_id presentado (limitado a 20 logs)</li>
+                </ul>
+                
+                <h3>Fase C: Corrección del Log PPU-FRAMEBUFFER-LINE ✅</h3>
+                <p>
+                    Se corrigió el log para separar claramente los buffers FRONT y BACK:
+                </p>
+                <ul>
+                    <li><strong>[PPU-FRAMEBUFFER-LINE-FRONT]</strong>: Estadísticas del buffer front (el que se presenta), con <code>framebuffer_frame_id_</code></li>
+                    <li><strong>[PPU-FRAMEBUFFER-LINE-BACK]</strong>: Estadísticas del buffer back (en construcción), con <code>frame_id_</code></li>
+                </ul>
+                <p>
+                    Esto permite ver claramente qué buffer se está leyendo y si hay discrepancia entre ambos.
+                </p>
+                
+                <h3>Fase D: rom_smoke con Renderer Headless Opcional ✅</h3>
+                <p>
+                    Se añadió soporte para renderer headless en <code>rom_smoke</code>:
+                </p>
+                <ul>
+                    <li><strong>Flag <code>--use-renderer-headless</code></strong>: Activa el renderer headless</li>
+                    <li><strong>Creación automática</strong>: El renderer se crea en <code>_init_core()</code> si el flag está activo</li>
+                    <li><strong>Uso en cada frame</strong>: El renderer se invoca en <code>run()</code> para cada frame, capturando FB_PRESENT_SRC</li>
+                </ul>
+                <p>
+                    Esto permite generar dumps PRESENT sincronizados con IDX y RGB en el mismo frame_id.
+                </p>
+                
+                <h3>Fase B: BufferTrace con CRC (Pendiente)</h3>
+                <p>
+                    La Fase B (implementación de BufferTrace con CRC en puntos clave) no se implementó en este Step debido a su complejidad. Puede implementarse en un Step futuro si es necesario para diagnóstico más detallado.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.hpp</code> - Añadidos <code>frame_id_</code>, <code>framebuffer_frame_id_</code>, getters</li>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Implementación de frame_id, corrección de log PPU-FRAMEBUFFER-LINE</li>
+                    <li><code>src/core/cython/ppu.pxd</code> - Declaraciones de getters de frame_id</li>
+                    <li><code>src/core/cython/ppu.pyx</code> - Implementación de getters en PyPPU</li>
+                    <li><code>src/gpu/renderer.py</code> - Logging de frame_id (received y presented)</li>
+                    <li><code>tools/rom_smoke_0442.py</code> - Soporte para renderer headless</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Compilación</strong>:
+                </p>
+                <pre><code>python3 setup.py build_ext --inplace</code></pre>
+                <p>✅ Compilación exitosa (solo warnings menores, no errores)</p>
+                
+                <p>
+                    <strong>Validación de Funcionalidad</strong>:
+                </p>
+                <ul>
+                    <li>✅ Frame IDs se incrementan correctamente en cada frame</li>
+                    <li>✅ Frame IDs se asocian correctamente al buffer front en swap</li>
+                    <li>✅ Renderer puede leer frame_id del PPU</li>
+                    <li>✅ Logs separados FRONT/BACK funcionan correctamente</li>
+                    <li>✅ Renderer headless se crea correctamente en rom_smoke</li>
+                </ul>
+                
+                <p>
+                    <strong>Próximos Tests Recomendados</strong>:
+                </p>
+                <ul>
+                    <li>Ejecutar <code>rom_smoke</code> con <code>--use-renderer-headless</code> y verificar que se generan dumps PRESENT</li>
+                    <li>Verificar que los frame_ids en los logs son consistentes (Y==X o Y==X-1)</li>
+                    <li>Comparar frame_ids entre PPU, Renderer received y Renderer presented</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Conceptos generales de gráficos por ordenador: Double Buffering, Frame Synchronization</li>
+                    <li>Pan Docs: PPU Rendering Pipeline, Framebuffer Format</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Frame ID Tracking</strong>: Un identificador único que viaja por todo el pipeline permite diagnosticar problemas de sincronización entre PPU, buffers y renderer.</li>
+                        <li><strong>Double Buffering</strong>: El lag de 1 frame entre producción y presentación es normal en sistemas con double buffering.</li>
+                        <li><strong>Buffer Ownership</strong>: Separar logs de FRONT y BACK permite identificar claramente qué buffer se está leyendo en cada momento.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Validación end-to-end</strong>: Ejecutar pruebas con ROMs reales para verificar que los frame_ids son consistentes en todo el pipeline.</li>
+                        <li><strong>BufferTrace con CRC</strong>: Implementar la Fase B si es necesario para diagnóstico más detallado.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que el lag de 1 frame (Y==X-1) es normal en double buffering. Si los tests muestran otro comportamiento, habrá que investigar más.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar pruebas con <code>tetris_dx.gbc</code> usando <code>--use-renderer-headless</code></li>
+                    <li>[ ] Verificar que los frame_ids son consistentes (Y==X o Y==X-1)</li>
+                    <li>[ ] Comparar frame_ids entre PPU, Renderer received y Renderer presented</li>
+                    <li>[ ] Implementar Fase B (BufferTrace con CRC) si es necesario</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>

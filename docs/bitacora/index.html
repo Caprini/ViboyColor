@@ -32,6 +32,42 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0498 - BufferTrace CRC + Dumps por frame_id + First Signal automático -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-09__0498__buffertrace-crc-dumps-frameid.html" class="entry-link">
+                                    BufferTrace CRC + Dumps por frame_id + First Signal automático
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-09 | 
+                            <strong>Step ID:</strong> 0498 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de un sistema completo de trazabilidad end-to-end con CRC32 para diagnosticar problemas de sincronización y corrupción de datos en el pipeline de renderizado (PPU → RGB → Renderer → Present). Se añadió detección automática del "First Signal" (primer frame con contenido no-blanco) y generación automática de dumps visuales y tablas de consistencia de frame IDs. Se corrigieron problemas de bloqueo en modo headless. Reporte completo en docs/reports/reporte_step0498.md.
+                        </p>
+                    </li>
+                    <!-- Entrada 0497 - Frame-ID Proof + Buffer Ownership + rom_smoke con renderer -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-08__0497__frame-id-proof-buffer-ownership.html" class="entry-link">
+                                    Frame-ID Proof + Buffer Ownership + rom_smoke con renderer
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-08 | 
+                            <strong>Step ID:</strong> 0497 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de un sistema de tracking de frame IDs end-to-end para diagnosticar problemas de sincronización en el pipeline de renderizado (PPU → RGB → Renderer → Present). Se añadió soporte para renderer headless en rom_smoke y se corrigió el log PPU-FRAMEBUFFER-LINE para separar buffers FRONT y BACK. Se implementaron las fases A (Frame IDs), C (Corrección de logs) y D (rom_smoke con renderer headless). La Fase B (BufferTrace con CRC) queda pendiente para un Step futuro. Reporte completo en docs/reports/reporte_step0497.md.
+                        </p>
+                    </li>
                     <!-- Entrada 0496 - CGB End-to-End Present Proof (Idx→RGB→Present) -->
                     <li>
                         <div class="entry-header">

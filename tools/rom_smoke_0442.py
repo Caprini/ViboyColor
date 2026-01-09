@@ -736,7 +736,8 @@ class ROMSmokeRunner:
     
     def __init__(self, rom_path: str, max_frames: int = 300, 
                  dump_every: int = 0, dump_png: bool = False,
-                 max_seconds: int = 120, stop_early_on_first_nonzero: bool = False):
+                 max_seconds: int = 120, stop_early_on_first_nonzero: bool = False,
+                 use_renderer_headless: bool = False):
         """
         Inicializa el runner.
         
@@ -747,6 +748,7 @@ class ROMSmokeRunner:
             dump_png: Si True, genera PNGs de framebuffers seleccionados
             max_seconds: Timeout máximo de ejecución (segundos)
             stop_early_on_first_nonzero: Si True, parar cuando tiledata_first_nonzero_frame exista
+            use_renderer_headless: Si True, usar renderer headless para capturar FB_PRESENT_SRC (Step 0497)
         """
         self.rom_path = Path(rom_path)
         self.max_frames = max_frames
@@ -754,6 +756,8 @@ class ROMSmokeRunner:
         self.dump_png = dump_png
         self.max_seconds = max_seconds
         self.stop_early_on_first_nonzero = stop_early_on_first_nonzero
+        self.use_renderer_headless = use_renderer_headless
+        self._renderer = None
         
         # Validar ROM
         if not self.rom_path.exists():
@@ -767,6 +771,12 @@ class ROMSmokeRunner:
         # Step 0470: Contadores para hotspots
         self.pc_samples: Dict[int, int] = {}  # Dict: PC -> count
         self.step_count = 0
+        
+        # --- Step 0498: First Signal Detector ---
+        self._first_signal_frame_id = None
+        self._first_signal_detected = False
+        self._first_signal_trace_snapshot = None  # Snapshot de traces cuando se detecta first_signal
+        # -----------------------------------------
         
         # Inicializar core
         self._init_core()
@@ -859,6 +869,26 @@ class ROMSmokeRunner:
         
         for addr, value in io_values:
             self.mmu.write(addr, value)
+        
+        # --- Step 0497: Crear renderer headless si está activo ---
+        if self.use_renderer_headless:
+            try:
+                import os
+                # Configurar variables de entorno para modo headless ANTES de importar Renderer
+                os.environ['SDL_VIDEODRIVER'] = 'dummy'
+                os.environ['VIBOY_HEADLESS'] = '1'
+                os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
+                
+                from src.gpu.renderer import Renderer
+                # Crear renderer en modo headless (sin ventana)
+                self._renderer = Renderer(mmu=self.mmu, use_cpp_ppu=True, ppu=self.ppu, joypad=self.joypad)
+                print(f"[ROM-SMOKE] Renderer headless creado para capturar FB_PRESENT_SRC")
+            except Exception as e:
+                print(f"[ROM-SMOKE] ⚠️ ADVERTENCIA: No se pudo crear renderer headless: {e}")
+                import traceback
+                traceback.print_exc()
+                self._renderer = None
+        # -----------------------------------------
     
     def _sample_nonwhite_pixels(self, framebuffer: List[int]) -> int:
         """
@@ -967,6 +997,282 @@ class ROMSmokeRunner:
         # Hash de muestra (primeros 1000 bytes para eficiencia)
         sample = bytes(framebuffer[:min(1000, len(framebuffer))])
         return hashlib.md5(sample).hexdigest()[:8]
+    
+    def _detect_first_signal(self, ppu, mmu, renderer=None):
+        """
+        Step 0498: Detecta primera señal real (IdxNonZero>0 o RgbNonWhite>0 o PresentNonWhite>0).
+        
+        Args:
+            ppu: Instancia de PyPPU
+            mmu: Instancia de PyMMU
+            renderer: Instancia de Renderer (opcional)
+        
+        Returns:
+            frame_id de la primera señal detectada, o None si no se ha detectado
+        """
+        if self._first_signal_detected:
+            return self._first_signal_frame_id
+        
+        # Obtener métricas
+        try:
+            three_buf_stats = ppu.get_three_buffer_stats()
+            if three_buf_stats:
+                idx_nonzero = three_buf_stats.get('idx_nonzero', 0)
+                rgb_nonwhite = three_buf_stats.get('rgb_nonwhite_count', 0)
+                present_nonwhite = 0
+                
+                # Obtener present_nonwhite del renderer si está disponible
+                if renderer is not None and hasattr(renderer, 'get_renderer_trace'):
+                    renderer_trace = renderer.get_renderer_trace()
+                    if renderer_trace:
+                        # Obtener el último evento
+                        last_event = renderer_trace[-1]
+                        present_nonwhite = last_event.get('present_nonwhite', 0)
+                
+                # Detectar primera señal
+                if idx_nonzero > 0 or rgb_nonwhite > 0 or present_nonwhite > 0:
+                    frame_id = ppu.get_framebuffer_frame_id()
+                    self._first_signal_frame_id = frame_id
+                    self._first_signal_detected = True
+                    
+                    # --- Step 0498: Guardar snapshot de traces para tabla FrameIdConsistency ---
+                    try:
+                        # Obtener traces actuales
+                        ppu_trace = ppu.get_buffer_trace_ring(max_events=128)
+                        renderer_trace = renderer.get_renderer_trace() if renderer is not None and hasattr(renderer, 'get_renderer_trace') else []
+                        
+                        self._first_signal_trace_snapshot = {
+                            'ppu_trace': ppu_trace.copy() if hasattr(ppu_trace, 'copy') else list(ppu_trace),
+                            'renderer_trace': renderer_trace.copy() if hasattr(renderer_trace, 'copy') else list(renderer_trace),
+                            'frame_id': frame_id
+                        }
+                        print(f"[FirstSignal] Snapshot de traces guardado (PPU: {len(ppu_trace)} eventos, Renderer: {len(renderer_trace)} eventos)")
+                    except Exception as e:
+                        print(f"[FirstSignal] ⚠️ Error guardando snapshot de traces: {e}")
+                    # -----------------------------------------
+                    
+                    print(f"[FirstSignal] Detected at frame_id={frame_id} | "
+                          f"IdxNonZero={idx_nonzero} | RgbNonWhite={rgb_nonwhite} | "
+                          f"PresentNonWhite={present_nonwhite}")
+                    
+                    return frame_id
+        except Exception as e:
+            # Silenciar errores en detección (puede fallar si PPU no está listo)
+            pass
+        
+        return None
+    
+    def _dump_framebuffer_by_frame_id(self, buffer_type: str, frame_id: int, ppu):
+        """
+        Step 0498: Dump framebuffer etiquetado por frame_id.
+        
+        Args:
+            buffer_type: Tipo de buffer ('idx' o 'rgb')
+            frame_id: Frame ID del buffer a dumpear
+            ppu: Instancia de PyPPU
+        """
+        dump_path = f'/tmp/viboy_dx_{buffer_type}_fid_{frame_id:010d}.ppm'
+        
+        try:
+            if buffer_type == 'idx':
+                # Dump FB_INDEX (índices 0-3)
+                fb_indices = ppu.get_presented_framebuffer_indices()
+                if fb_indices is None or len(fb_indices) != 160 * 144:
+                    return
+                
+                # Convertir índices a RGB (usar paleta simple para visualización)
+                width, height = 160, 144
+                palette = [
+                    (255, 255, 255),  # 0 = blanco
+                    (170, 170, 170),  # 1 = gris claro
+                    (85, 85, 85),     # 2 = gris oscuro
+                    (0, 0, 0),        # 3 = negro
+                ]
+                
+                with open(dump_path, 'wb') as f:
+                    f.write(b"P6\n")
+                    f.write(f"{width} {height}\n".encode())
+                    f.write(b"255\n")
+                    
+                    # fb_indices es bytes, convertir a lista de enteros
+                    for i in range(width * height):
+                        idx = fb_indices[i] & 0x03
+                        r, g, b = palette[idx]
+                        f.write(bytes([r, g, b]))
+                
+                print(f"[FirstSignal] Dump FB_INDEX guardado: {dump_path}")
+                
+            elif buffer_type == 'rgb':
+                # Dump FB_RGB (RGB888)
+                fb_rgb = ppu.get_framebuffer_rgb()
+                if fb_rgb is None:
+                    return
+                
+                width, height = 160, 144
+                with open(dump_path, 'wb') as f:
+                    f.write(b"P6\n")
+                    f.write(f"{width} {height}\n".encode())
+                    f.write(b"255\n")
+                    
+                    # fb_rgb puede ser memoryview o bytes
+                    if hasattr(fb_rgb, 'tobytes'):
+                        f.write(fb_rgb.tobytes()[:width * height * 3])
+                    else:
+                        f.write(bytes(fb_rgb[:width * height * 3]))
+                
+                print(f"[FirstSignal] Dump FB_RGB guardado: {dump_path}")
+        except Exception as e:
+            print(f"[FirstSignal] ⚠️ Error dumpeando {buffer_type} para frame_id {frame_id}: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _dump_present_by_frame_id(self, buffer_type: str, frame_id: int, renderer):
+        """
+        Step 0498: Dump buffer presentado etiquetado por frame_id.
+        
+        Args:
+            buffer_type: Tipo de buffer ('present')
+            frame_id: Frame ID del buffer a dumpear
+            renderer: Instancia de Renderer
+        """
+        dump_path = f'/tmp/viboy_dx_{buffer_type}_fid_{frame_id:010d}.ppm'
+        
+        try:
+            # Obtener el último evento del trace del renderer
+            renderer_trace = renderer.get_renderer_trace()
+            if not renderer_trace:
+                return
+            
+            # Buscar evento con el frame_id correcto
+            target_event = None
+            for event in reversed(renderer_trace):
+                if event.get('frame_id_received') == frame_id:
+                    target_event = event
+                    break
+            
+            if target_event is None:
+                print(f"[FirstSignal] ⚠️ No se encontró evento para frame_id {frame_id} en renderer trace")
+                return
+            
+            # El buffer presentado ya fue capturado en el renderer, pero necesitamos
+            # leerlo desde el Surface. Por ahora, solo loggeamos que se intentó.
+            # TODO: Implementar lectura del Surface si es necesario
+            print(f"[FirstSignal] Dump FB_PRESENT solicitado para frame_id {frame_id} (implementación pendiente)")
+        except Exception as e:
+            print(f"[FirstSignal] ⚠️ Error dumpeando {buffer_type} para frame_id {frame_id}: {e}")
+    
+    def _classify_frame_id_consistency(self, row: Dict) -> str:
+        """
+        Step 0498: Clasifica una fila de FrameIdConsistency.
+        
+        Args:
+            row: Diccionario con datos de la fila de FrameIdConsistency
+        
+        Returns:
+            Clasificación: OK_SAME_FRAME, OK_LAG_1, STALE_PRESENT, MISMATCH_COPY, ORDER_BUG, INCOMPLETE, UNKNOWN
+        """
+        ppu_front_fid = row.get('ppu_front_fid')
+        ppu_back_fid = row.get('ppu_back_fid')
+        ppu_front_rgb_crc = row.get('ppu_front_rgb_crc')
+        renderer_received_fid = row.get('renderer_received_fid')
+        renderer_src_crc = row.get('renderer_src_crc')
+        renderer_present_crc = row.get('renderer_present_crc')
+        
+        if ppu_front_fid is None or renderer_received_fid is None:
+            return "INCOMPLETE"
+        
+        # OK: renderer recibe el frame_id correcto y el CRC coincide
+        if renderer_received_fid == ppu_front_fid and renderer_src_crc == ppu_front_rgb_crc:
+            if ppu_back_fid is not None and ppu_front_fid == ppu_back_fid - 1:
+                return "OK_LAG_1"  # Lag de 1 frame normal
+            else:
+                return "OK_SAME_FRAME"  # Mismo frame, sin lag
+        
+        # STALE_PRESENT: CRC present coincide con frame_id antiguo
+        if renderer_present_crc == ppu_front_rgb_crc and renderer_received_fid != ppu_front_fid:
+            return "STALE_PRESENT"
+        
+        # MISMATCH_COPY: frame_id igual pero CRC distinto (overwrite/format/copia)
+        if renderer_received_fid == ppu_front_fid and renderer_src_crc != ppu_front_rgb_crc:
+            return "MISMATCH_COPY"
+        
+        # ORDER_BUG: renderer recibe frame_id/back incorrecto (orden swap/render mal)
+        if renderer_received_fid != ppu_front_fid:
+            if ppu_back_fid is not None and renderer_received_fid != ppu_back_fid:
+                return "ORDER_BUG"
+        
+        return "UNKNOWN"
+    
+    def _generate_frame_id_consistency_table(self) -> List[Dict]:
+        """
+        Step 0498: Genera tabla FrameIdConsistency con datos de PPU y Renderer.
+        
+        Returns:
+            Lista de diccionarios, cada uno con datos de una fila de la tabla
+        """
+        if not self.use_renderer_headless or self._renderer is None:
+            return []
+        
+        try:
+            # --- Step 0498: Usar snapshot si está disponible, sino usar traces actuales ---
+            if self._first_signal_trace_snapshot is not None:
+                # Usar snapshot guardado cuando se detectó first_signal
+                ppu_trace = self._first_signal_trace_snapshot['ppu_trace']
+                renderer_trace = self._first_signal_trace_snapshot['renderer_trace']
+                snapshot_frame_id = self._first_signal_trace_snapshot['frame_id']
+                print(f"[FrameIdConsistency] Usando snapshot de traces (guardado en frame_id={snapshot_frame_id})")
+            else:
+                # Fallback: usar traces actuales (puede que no tengan los datos de first_signal)
+                ppu_trace = self.ppu.get_buffer_trace_ring(max_events=128)
+                renderer_trace = self._renderer.get_renderer_trace()
+                print(f"[FrameIdConsistency] ⚠️ Usando traces actuales (snapshot no disponible)")
+            # -----------------------------------------
+            
+            # Construir tabla FrameIdConsistency
+            frame_id_consistency = []
+            
+            # Alrededor del first_signal (50 filas)
+            if self._first_signal_frame_id is not None:
+                start_fid = max(0, self._first_signal_frame_id - 25)
+                end_fid = self._first_signal_frame_id + 25
+                
+                for fid in range(start_fid, end_fid + 1):
+                    # Buscar en PPU trace
+                    ppu_event = None
+                    for e in ppu_trace:
+                        if e.get('framebuffer_frame_id') == fid:
+                            ppu_event = e
+                            break
+                    
+                    # Buscar en renderer trace
+                    renderer_event = None
+                    for e in renderer_trace:
+                        if e.get('frame_id_received') == fid:
+                            renderer_event = e
+                            break
+                    
+                    row = {
+                        'fid': fid,
+                        'ppu_front_fid': ppu_event.get('framebuffer_frame_id') if ppu_event else None,
+                        'ppu_back_fid': ppu_event.get('frame_id') if ppu_event else None,
+                        'ppu_front_rgb_crc': ppu_event.get('front_rgb_crc32') if ppu_event else None,
+                        'renderer_received_fid': renderer_event.get('frame_id_received') if renderer_event else None,
+                        'renderer_src_crc': renderer_event.get('src_crc32') if renderer_event else None,
+                        'renderer_present_crc': renderer_event.get('present_crc32') if renderer_event else None,
+                        'present_nonwhite': renderer_event.get('present_nonwhite') if renderer_event else None,
+                    }
+                    
+                    # Añadir clasificación
+                    row['classification'] = self._classify_frame_id_consistency(row)
+                    
+                    frame_id_consistency.append(row)
+            
+            return frame_id_consistency
+        except Exception as e:
+            print(f"[FrameIdConsistency] ⚠️ Error generando tabla: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
     
     def _sample_vram_nonzero(self) -> int:
         """
@@ -1498,6 +1804,7 @@ class ROMSmokeRunner:
         print(f"Max seconds: {self.max_seconds}")
         print(f"Dump every: {self.dump_every} frames" if self.dump_every > 0 else "Dump: final only")
         print(f"Dump PNG: {'Yes' if self.dump_png else 'No'}")
+        print(f"Renderer headless: {'Yes' if self.use_renderer_headless else 'No'}")
         print(f"-" * 80)
         
         self.start_time = time.time()
@@ -1593,6 +1900,52 @@ class ROMSmokeRunner:
             
             # Step 0493: Dumps sincronizados para CGB (FB_INDEX, FB_RGB, FB_PRESENT_SRC en mismo frame)
             self._dump_synchronized_buffers(frame_idx)
+            
+            # --- Step 0498: First Signal Detector y Dumps Automáticos ---
+            first_signal_id = self._detect_first_signal(self.ppu, self.mmu, self._renderer)
+            
+            if first_signal_id is not None:
+                # Dump para first_signal_id, first_signal_id-1, first_signal_id+1
+                current_frame_id = self.ppu.get_framebuffer_frame_id()
+                
+                for offset in [-1, 0, 1]:
+                    target_frame_id = first_signal_id + offset
+                    
+                    # Solo dump si estamos en el frame_id correcto
+                    if current_frame_id == target_frame_id:
+                        # Dump FB_INDEX
+                        self._dump_framebuffer_by_frame_id('idx', target_frame_id, self.ppu)
+                        
+                        # Dump FB_RGB
+                        self._dump_framebuffer_by_frame_id('rgb', target_frame_id, self.ppu)
+                        
+                        # Dump FB_PRESENT_SRC (si hay renderer)
+                        if self._renderer is not None:
+                            self._dump_present_by_frame_id('present', target_frame_id, self._renderer)
+            # -----------------------------------------
+            
+            # --- Step 0497: Usar renderer headless para capturar FB_PRESENT_SRC ---
+            if self.use_renderer_headless and self._renderer is not None:
+                try:
+                    # Obtener framebuffer RGB desde PPU
+                    fb_rgb = self.ppu.get_framebuffer_rgb()
+                    
+                    # Preparar métricas para el renderer
+                    renderer_metrics = {
+                        'pc': self.regs.pc,
+                        'vram_nonzero': metrics.get('vram_nonzero', 0),
+                        'lcdc': self.mmu.read(0xFF40),
+                        'bgp': self.mmu.read(0xFF47),
+                        'ly': self.mmu.read(0xFF44)
+                    }
+                    
+                    # Renderizar frame (esto captura FB_PRESENT_SRC internamente)
+                    self._renderer.render_frame(rgb_view=fb_rgb, metrics=renderer_metrics)
+                except Exception as e:
+                    # No fallar si el renderer tiene problemas, solo loggear
+                    if frame_idx < 5:  # Solo loggear primeros 5 errores
+                        print(f"[ROM-SMOKE] ⚠️ Error en renderer headless frame {frame_idx}: {e}")
+            # -----------------------------------------
             
             # --- Step 0469: Snapshot cada 60 frames (o frames 0, 60, 120, 180, 240) ---
             should_snapshot = (frame_idx % 60 == 0) or frame_idx < 3
@@ -2918,6 +3271,84 @@ class ROMSmokeRunner:
                 print(f"    LY: first={m['ly_first']:02X} mid={m['ly_mid']:02X} last={m['ly_last']:02X}")
                 print(f"    STAT: first={m['stat_first']:02X} mid={m['stat_mid']:02X} last={m['stat_last']:02X}")
         
+        # --- Step 0498: FrameIdConsistency Table (solo si use_renderer_headless) ---
+        if self.use_renderer_headless and self._renderer is not None:
+            print(f"\n" + "=" * 80)
+            print(f"FRAME ID CONSISTENCY TABLE (Step 0498)")
+            print(f"=" * 80)
+            
+            frame_id_consistency = self._generate_frame_id_consistency_table()
+            
+            if frame_id_consistency:
+                print(f"\nFirst Signal Frame ID: {self._first_signal_frame_id}")
+                print(f"\nTabla (50 filas alrededor del first signal):")
+                print(f"{'fid':>10} | {'ppu_front_fid':>15} | {'ppu_back_fid':>13} | {'ppu_front_rgb_crc':>18} | "
+                      f"{'renderer_received_fid':>22} | {'renderer_src_crc':>18} | {'renderer_present_crc':>22} | "
+                      f"{'present_nonwhite':>17} | {'classification':>15}")
+                print("-" * 160)
+                
+                for row in frame_id_consistency:
+                    fid = row.get('fid', 0)
+                    ppu_front_fid = row.get('ppu_front_fid')
+                    ppu_back_fid = row.get('ppu_back_fid')
+                    ppu_front_rgb_crc = row.get('ppu_front_rgb_crc')
+                    renderer_received_fid = row.get('renderer_received_fid')
+                    renderer_src_crc = row.get('renderer_src_crc')
+                    renderer_present_crc = row.get('renderer_present_crc')
+                    present_nonwhite = row.get('present_nonwhite')
+                    classification = row.get('classification', 'UNKNOWN')
+                    
+                    # Formatear valores (convertir None a string y CRCs a hex)
+                    ppu_front_fid_str = str(ppu_front_fid) if ppu_front_fid is not None else 'None'
+                    ppu_back_fid_str = str(ppu_back_fid) if ppu_back_fid is not None else 'None'
+                    
+                    if isinstance(ppu_front_rgb_crc, int):
+                        ppu_front_rgb_crc_str = f"0x{ppu_front_rgb_crc:08X}"
+                    else:
+                        ppu_front_rgb_crc_str = 'None'
+                    
+                    renderer_received_fid_str = str(renderer_received_fid) if renderer_received_fid is not None else 'None'
+                    
+                    if isinstance(renderer_src_crc, int):
+                        renderer_src_crc_str = f"0x{renderer_src_crc:08X}"
+                    else:
+                        renderer_src_crc_str = 'None'
+                    
+                    if isinstance(renderer_present_crc, int):
+                        renderer_present_crc_str = f"0x{renderer_present_crc:08X}"
+                    else:
+                        renderer_present_crc_str = 'None'
+                    
+                    present_nonwhite_str = str(present_nonwhite) if present_nonwhite is not None else 'None'
+                    
+                    print(f"{fid:>10} | {ppu_front_fid_str:>15} | {ppu_back_fid_str:>13} | {ppu_front_rgb_crc_str:>18} | "
+                          f"{renderer_received_fid_str:>22} | {renderer_src_crc_str:>18} | {renderer_present_crc_str:>22} | "
+                          f"{present_nonwhite_str:>17} | {classification:>15}")
+                
+                # Análisis de clasificaciones
+                classifications = [row.get('classification', 'UNKNOWN') for row in frame_id_consistency]
+                classification_counts = {}
+                for cls in classifications:
+                    classification_counts[cls] = classification_counts.get(cls, 0) + 1
+                
+                print(f"\nAnálisis de Clasificaciones:")
+                for cls, count in sorted(classification_counts.items()):
+                    print(f"  {cls}: {count} filas")
+                
+                # Conclusión
+                ok_count = classification_counts.get('OK_SAME_FRAME', 0) + classification_counts.get('OK_LAG_1', 0)
+                total_count = len(frame_id_consistency)
+                
+                if ok_count == total_count:
+                    print(f"\n✅ CONCLUSIÓN: Present = Front (mismo frame_id y CRC) con lag de 1 frame")
+                elif ok_count > total_count * 0.8:
+                    print(f"\n⚠️ CONCLUSIÓN: Mayoría OK ({ok_count}/{total_count}), pero hay {total_count - ok_count} discrepancias")
+                else:
+                    print(f"\n❌ CONCLUSIÓN: Present no coincide (CRC/frame_id) ⇒ bug en orden/swap/copia")
+            else:
+                print("No se generó tabla FrameIdConsistency (first_signal no detectado o sin datos)")
+            # -----------------------------------------
+        
         print(f"")
         
         # Diagnóstico LY/STAT (Step 0443)
@@ -3181,6 +3612,8 @@ def main():
                         help="Timeout máximo de ejecución en segundos (default: 120)")
     parser.add_argument("--stop-early-on-first-nonzero", action="store_true",
                         help="Parar cuando tiledata_first_nonzero_frame exista (Step 0492)")
+    parser.add_argument("--use-renderer-headless", action="store_true",
+                        help="Usar renderer headless para capturar FB_PRESENT_SRC (Step 0497)")
     
     args = parser.parse_args()
     
@@ -3191,7 +3624,8 @@ def main():
             dump_every=args.dump_every,
             dump_png=args.dump_png,
             max_seconds=args.max_seconds,
-            stop_early_on_first_nonzero=args.stop_early_on_first_nonzero
+            stop_early_on_first_nonzero=args.stop_early_on_first_nonzero,
+            use_renderer_headless=args.use_renderer_headless
         )
         runner.run()
     except Exception as e:

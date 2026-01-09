@@ -159,6 +159,9 @@ class Renderer:
         self.cpp_ppu = ppu
         self.joypad = joypad  # Instancia de PyJoypad (C++) o Joypad (Python)
         
+        # --- Step 0498: BufferTrace - Lista de eventos del renderer ---
+        self._renderer_trace = []  # Lista de eventos (máximo 128)
+        
         # Dimensiones de la ventana (GB_WIDTH x GB_HEIGHT escalado)
         self.window_width = GB_WIDTH * scale
         self.window_height = GB_HEIGHT * scale
@@ -430,19 +433,23 @@ class Renderer:
                 break
             
             # Manejar eventos (permitir cerrar durante la carga y redimensionar)
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    running = False
-                    break
-                elif event.type == pygame.VIDEORESIZE:
-                    self.window_width = event.w
-                    self.window_height = event.h
-                    # Actualizar el tamaño de la superficie de la ventana
-                    self.screen = pygame.display.set_mode((self.window_width, self.window_height), pygame.RESIZABLE)
-                elif event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_ESCAPE:
+            # --- Step 0498: Modo headless - evitar pygame.event.get() que puede bloquear ---
+            is_headless = not hasattr(self, 'screen') or self.screen is None
+            if not is_headless:
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
                         running = False
                         break
+                    elif event.type == pygame.VIDEORESIZE:
+                        self.window_width = event.w
+                        self.window_height = event.h
+                        # Actualizar el tamaño de la superficie de la ventana
+                        self.screen = pygame.display.set_mode((self.window_width, self.window_height), pygame.RESIZABLE)
+                    elif event.type == pygame.KEYDOWN:
+                        if event.key == pygame.K_ESCAPE:
+                            running = False
+                            break
+            # -----------------------------------------
             
             # Actualizar animación de puntos
             if current_time - last_dot_time >= dot_interval:
@@ -617,6 +624,15 @@ class Renderer:
         Fuente: Pan Docs - LCD Control Register, Background Tile Map, Window
         """
         
+        # --- Step 0497: Frame ID logging ---
+        # Obtener frame_id del PPU si está disponible
+        frame_id_received = None
+        if hasattr(self, 'cpp_ppu') and self.cpp_ppu is not None:
+            try:
+                frame_id_received = self.cpp_ppu.get_framebuffer_frame_id()
+            except:
+                pass
+        
         # --- Step 0445: Path Identification ---
         if not hasattr(self, '_path_log_count'):
             self._path_log_count = 0
@@ -624,6 +640,15 @@ class Renderer:
         
         # Log primeros 5 frames y luego cada 120 frames
         should_log = (self._path_log_count < 5) or (self._path_log_count % 120 == 0)
+        
+        # --- Step 0497: Log frame_id recibido (limitado a 20 logs) ---
+        if not hasattr(self, '_frame_id_log_count'):
+            self._frame_id_log_count = 0
+        
+        if self._frame_id_log_count < 20 and frame_id_received is not None:
+            self._frame_id_log_count += 1
+            print(f"[Renderer-Frame-ID] Frame {self._path_log_count} | Received frame_id={frame_id_received}")
+        # -------------------------------------------
         
         if should_log:
             import time
@@ -980,7 +1005,7 @@ class Renderer:
                                 present_fmt, present_pitch,
                                 present_w, present_h
                             )
-                        
+                            
                         # Guardar en métricas si están disponibles
                         if metrics is not None:
                             metrics['present_crc32'] = present_crc32
@@ -989,8 +1014,46 @@ class Renderer:
                             metrics['present_pitch'] = present_pitch
                             metrics['present_w'] = present_w
                             metrics['present_h'] = present_h
+                        
+                        # --- Step 0498: BufferTrace - Capturar CRC32 del buffer origen (RGB) ---
+                        src_crc32 = 0
+                        if rgb_view is not None:
+                            try:
+                                import zlib
+                                src_crc32 = zlib.crc32(rgb_view) & 0xFFFFFFFF
+                            except:
+                                pass
+                        
+                        # Añadir evento al trace del renderer
+                        self._add_renderer_trace_event(
+                            frame_id_received, src_crc32, present_crc32,
+                            present_pitch, present_fmt, len(present_buffer_bytes), present_nonwhite
+                        )
                     except Exception as e:
                         logger.warning(f"[Renderer-Present-Stats] Error capturando present stats: {e}")
+                # -------------------------------------------
+                
+                # --- Step 0497: Log frame_id presentado (justo antes del flip) ---
+                frame_id_presented = None
+                if hasattr(self, 'cpp_ppu') and self.cpp_ppu is not None:
+                    try:
+                        frame_id_presented = self.cpp_ppu.get_framebuffer_frame_id()
+                    except:
+                        pass
+                
+                # Capturar FB_PRESENT_SRC antes del flip (ya está capturado arriba)
+                # Loggear frame_id presentado
+                if not hasattr(self, '_frame_id_present_log_count'):
+                    self._frame_id_present_log_count = 0
+                
+                if self._frame_id_present_log_count < 20 and frame_id_presented is not None:
+                    self._frame_id_present_log_count += 1
+                    # Calcular present_nonwhite si está disponible
+                    present_nonwhite = 0
+                    if metrics is not None and 'present_nonwhite' in metrics:
+                        present_nonwhite = metrics['present_nonwhite']
+                    print(f"[Renderer-Present-ID] Frame {self._path_log_count} | Presented frame_id={frame_id_presented} | "
+                          f"PresentNonWhite={present_nonwhite}")
                 # -------------------------------------------
                 
                 # --- Step 0496: Solo hacer flip si no estamos en modo headless ---
@@ -3735,6 +3798,13 @@ class Renderer:
         if pygame is None:
             return True
         
+        # --- Step 0498: Modo headless - evitar llamadas a pygame.event que pueden bloquear ---
+        is_headless = not hasattr(self, 'screen') or self.screen is None
+        if is_headless:
+            # En modo headless, no hay eventos que manejar
+            return True
+        # -----------------------------------------
+        
         # En macOS (y algunos otros sistemas), pygame.event.pump() es necesario
         # para que la ventana se actualice correctamente
         pygame.event.pump()
@@ -3778,6 +3848,60 @@ class Renderer:
                         self.joypad.release_button(button_index)
         
         return True
+    
+    def _add_renderer_trace_event(self, frame_id_received, src_crc32, present_crc32, 
+                                   present_pitch, present_format, bytes_len, present_nonwhite):
+        """
+        Step 0498: Añade evento al trace del renderer.
+        
+        Args:
+            frame_id_received: Frame ID recibido del PPU
+            src_crc32: CRC32 del buffer que entra al blit (RGB bytes origen)
+            present_crc32: CRC32 del Surface/buffer inmediatamente antes del flip
+            present_pitch: Pitch del buffer presentado
+            present_format: Formato del buffer (codificado como número)
+            bytes_len: Longitud en bytes del buffer presentado
+            present_nonwhite: Conteo de píxeles no-blancos en el buffer presentado
+        """
+        event = {
+            'frame_id_received': frame_id_received,
+            'src_crc32': src_crc32,
+            'present_crc32': present_crc32,
+            'present_pitch': present_pitch,
+            'present_format': present_format,
+            'bytes_len': bytes_len,
+            'present_nonwhite': present_nonwhite,
+        }
+        
+        self._renderer_trace.append(event)
+        if len(self._renderer_trace) > 128:
+            self._renderer_trace.pop(0)  # Mantener solo últimos 128
+        
+        # Logging limitado (primeros 50 eventos)
+        if not hasattr(self, '_trace_log_count'):
+            self._trace_log_count = 0
+        
+        if self._trace_log_count < 50:
+            self._trace_log_count += 1
+            print(f"[Renderer-BufferTrace] frame_id_received={frame_id_received} | "
+                  f"src_crc32=0x{src_crc32:08X} | present_crc32=0x{present_crc32:08X} | "
+                  f"present_nonwhite={present_nonwhite}")
+    
+    def get_renderer_trace(self):
+        """
+        Step 0498: Obtiene el trace del renderer (últimos 128 eventos).
+        
+        Returns:
+            Lista de eventos del renderer, cada uno con:
+            - frame_id_received: Frame ID recibido del PPU
+            - src_crc32: CRC32 del buffer origen (RGB)
+            - present_crc32: CRC32 del buffer presentado
+            - present_pitch: Pitch del buffer
+            - present_format: Formato del buffer
+            - bytes_len: Longitud en bytes
+            - present_nonwhite: Conteo de píxeles no-blancos
+        """
+        return self._renderer_trace.copy()
 
     def quit(self) -> None:
         """Cierra Pygame limpiamente."""

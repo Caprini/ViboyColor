@@ -7,13 +7,14 @@ Este módulo expone la clase C++ PPU a Python, permitiendo
 acceso de alta velocidad al motor de timing de la PPU.
 """
 
-from libc.stdint cimport uint8_t, uint16_t, uint32_t
+from libc.stdint cimport uint8_t, uint16_t, uint32_t, uint64_t
 from libcpp cimport bool
+from libcpp.vector cimport vector
 
 # Importar la definición de la clase C++ desde el archivo .pxd
 cimport ppu
 cimport mmu
-from ppu cimport FrameBufferStats, ThreeBufferStats, DMGTileFetchStats
+from ppu cimport FrameBufferStats, ThreeBufferStats, DMGTileFetchStats, BufferTraceEvent
 
 # NOTA: PyMMU está definido en mmu.pyx, que está incluido en native_core.pyx
 # El atributo _mmu es accesible directamente desde otros módulos Cython
@@ -594,4 +595,73 @@ cdef class PyPPU:
         
         # Reshape a (144, 160) para facilitar análisis
         return arr.reshape((144, 160))
+    
+    def get_frame_id(self):
+        """
+        Step 0497: Obtiene el frame_id único actual.
+        
+        El frame_id es un identificador único que se incrementa en cada frame
+        y viaja por todo el pipeline (PPU → RGB → Renderer → Present).
+        Permite rastrear qué frame se está procesando en cada etapa.
+        
+        Returns:
+            Frame ID único actual
+        """
+        if self._ppu == NULL:
+            return 0
+        return self._ppu.get_frame_id()
+    
+    def get_framebuffer_frame_id(self):
+        """
+        Step 0497: Obtiene el frame_id del buffer front (listo para leer).
+        
+        Este frame_id corresponde al último frame que se completó y está
+        disponible en el framebuffer front (el que se presenta).
+        
+        Returns:
+            Frame ID del buffer front
+        """
+        if self._ppu == NULL:
+            return 0
+        return self._ppu.get_framebuffer_frame_id()
+    
+    def get_buffer_trace_ring(self, max_events: int = 128):
+        """
+        Step 0498: Obtiene el ring buffer de eventos BufferTrace (últimos N eventos).
+        
+        Devuelve los últimos N eventos del ring buffer para análisis de consistencia
+        de frame IDs y CRCs a través del pipeline (PPU → RGB → Renderer → Present).
+        
+        Args:
+            max_events: Número máximo de eventos a devolver (máximo 128)
+        
+        Returns:
+            Lista de diccionarios con los eventos BufferTrace, cada uno con:
+            - frame_id: Frame ID único del frame
+            - framebuffer_frame_id: Frame ID del buffer front
+            - front_idx_crc32: CRC32 del framebuffer front (índices)
+            - front_rgb_crc32: CRC32 del framebuffer front (RGB)
+            - back_idx_crc32: CRC32 del framebuffer back (índices)
+            - back_rgb_crc32: CRC32 del framebuffer back (RGB)
+            - buffer_uid: ID único del buffer (hash)
+        """
+        if self._ppu == NULL:
+            return []
+        
+        cdef vector[BufferTraceEvent] events = self._ppu.get_buffer_trace_ring(max_events)
+        cdef list result = []
+        
+        for i in range(events.size()):
+            event = events[i]
+            result.append({
+                'frame_id': event.frame_id,
+                'framebuffer_frame_id': event.framebuffer_frame_id,
+                'front_idx_crc32': event.front_idx_crc32,
+                'front_rgb_crc32': event.front_rgb_crc32,
+                'back_idx_crc32': event.back_idx_crc32,
+                'back_rgb_crc32': event.back_rgb_crc32,
+                'buffer_uid': event.buffer_uid,
+            })
+        
+        return result
 

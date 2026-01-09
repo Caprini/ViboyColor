@@ -7,8 +7,9 @@ Este archivo .pxd declara la interfaz de la clase PPU para que Cython
 pueda generar el código de enlace correcto.
 """
 
-from libc.stdint cimport uint8_t, uint16_t, uint32_t
+from libc.stdint cimport uint8_t, uint16_t, uint32_t, uint64_t
 from libcpp cimport bool
+from libcpp.vector cimport vector
 
 # Forward declaration de MMU (ya está definida en mmu.pxd)
 cimport mmu
@@ -47,6 +48,16 @@ cdef extern from "PPU.hpp":
         uint16_t top_vram_read_addrs[10]
         uint32_t top_vram_read_counts[10]
     
+    # Step 0498: Estructura para eventos de BufferTrace con CRC32
+    cdef struct BufferTraceEvent:
+        uint64_t frame_id
+        uint64_t framebuffer_frame_id
+        uint32_t front_idx_crc32
+        uint32_t front_rgb_crc32
+        uint32_t back_idx_crc32
+        uint32_t back_rgb_crc32
+        uint32_t buffer_uid
+    
 cdef extern from "PPU.hpp":
     cdef cppclass PPU:
         # Constantes públicas
@@ -82,11 +93,15 @@ cdef extern from "PPU.hpp":
         uint8_t* get_framebuffer_rgb_ptr()  # Step 0404: Framebuffer RGB888 para CGB
         const uint8_t* get_framebuffer_indices_ptr() const  # Step 0457: Debug API para tests
         const uint8_t* get_presented_framebuffer_indices_ptr()  # Step 0468
+        uint64_t get_frame_counter() const  # Step 0291: Contador de frames
+        uint64_t get_frame_id() const  # Step 0497: Frame ID único actual
+        uint64_t get_framebuffer_frame_id() const  # Step 0497: Frame ID del buffer front
         uint32_t get_vblank_irq_requested_count() const  # Step 0469: Contador VBlank IRQ solicitado
         const FrameBufferStats& get_framebuffer_stats() const  # Step 0488: Estadísticas del framebuffer
         const ThreeBufferStats& get_three_buffer_stats() const  # Step 0489: Estadísticas de tres buffers
         void set_present_stats(uint32_t present_crc32, uint32_t present_nonwhite_count, uint32_t present_fmt, uint32_t present_pitch, uint32_t present_w, uint32_t present_h)  # Step 0489: Actualizar stats de presentación
         const DMGTileFetchStats& get_dmg_tile_fetch_stats() const  # Step 0489: Estadísticas de fetch de tiles DMG
+        vector[BufferTraceEvent] get_buffer_trace_ring(size_t max_events) const  # Step 0498: Ring buffer de eventos BufferTrace
         void clear_framebuffer()
         void confirm_framebuffer_read()
         void convert_framebuffer_to_rgb()  # Step 0404: Conversión índices → RGB

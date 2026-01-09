@@ -70,6 +70,22 @@ struct DMGTileFetchStats {
 };
 
 /**
+ * Step 0498: Estructura para eventos de BufferTrace con CRC32.
+ * 
+ * Permite rastrear la integridad del contenido del framebuffer a través
+ * del pipeline (PPU → RGB → Renderer → Present) usando CRC32.
+ */
+struct BufferTraceEvent {
+    uint64_t frame_id;                    // Frame ID único del frame
+    uint64_t framebuffer_frame_id;        // Frame ID del buffer front
+    uint32_t front_idx_crc32;             // CRC32 del framebuffer_front_ (índices)
+    uint32_t front_rgb_crc32;             // CRC32 del framebuffer_rgb_front_
+    uint32_t back_idx_crc32;              // CRC32 del framebuffer_back_ (índices)
+    uint32_t back_rgb_crc32;              // CRC32 del framebuffer_rgb_back_ (si existe)
+    uint32_t buffer_uid;                   // ID único del buffer (hash del puntero o contenido)
+};
+
+/**
  * PPU (Pixel Processing Unit) - Unidad de Procesamiento de Píxeles
  * 
  * Esta clase implementa el motor de timing y estado de la PPU de la Game Boy.
@@ -244,6 +260,27 @@ public:
     uint64_t get_frame_counter() const;
     
     /**
+     * Step 0497: Obtiene el frame_id único actual.
+     * 
+     * El frame_id es un identificador único que se incrementa en cada frame
+     * y viaja por todo el pipeline (PPU → RGB → Renderer → Present).
+     * Permite rastrear qué frame se está procesando en cada etapa.
+     * 
+     * @return Frame ID único actual
+     */
+    uint64_t get_frame_id() const;
+    
+    /**
+     * Step 0497: Obtiene el frame_id del buffer front (listo para leer).
+     * 
+     * Este frame_id corresponde al último frame que se completó y está
+     * disponible en el framebuffer front (el que se presenta).
+     * 
+     * @return Frame ID del buffer front
+     */
+    uint64_t get_framebuffer_frame_id() const;
+    
+    /**
      * Step 0352: Verifica si el LCD está encendido.
      * 
      * Lee el registro LCDC (0xFF40) y verifica el bit 7 (LCD Enable).
@@ -405,6 +442,16 @@ public:
     const DMGTileFetchStats& get_dmg_tile_fetch_stats() const;
     
     /**
+     * Step 0498: Obtiene el ring buffer de eventos BufferTrace.
+     * 
+     * Devuelve los últimos N eventos del ring buffer para análisis de consistencia.
+     * 
+     * @param max_events Número máximo de eventos a devolver (máximo 128)
+     * @return Vector con los últimos eventos BufferTrace
+     */
+    std::vector<BufferTraceEvent> get_buffer_trace_ring(size_t max_events = 128) const;
+    
+    /**
      * Step 0469: Obtiene el contador de VBlank IRQ solicitados.
      * 
      * Este contador se incrementa cada vez que el PPU solicita una interrupción VBlank
@@ -516,6 +563,21 @@ private:
      * Step 0291: Necesario para rastrear el timing de carga de tiles.
      */
     uint64_t frame_counter_;
+    
+    /**
+     * Step 0497: Frame ID único que viaja por todo el pipeline.
+     * Se incrementa en cada frame (cuando ly_ > 153) y se asocia al buffer front
+     * en swap_framebuffers(). Permite rastrear qué frame se está procesando
+     * en cada etapa del pipeline (PPU → RGB → Renderer → Present).
+     */
+    uint64_t frame_id_;
+    
+    /**
+     * Step 0497: Frame ID del buffer front (el que se presenta).
+     * Se actualiza en swap_framebuffers() con el frame_id_ actual.
+     * Permite verificar que el renderer presenta el frame correcto.
+     */
+    uint64_t framebuffer_frame_id_;
     
     /**
      * Máscara de bits para rastrear condiciones de interrupción STAT activas.
@@ -844,6 +906,15 @@ private:
     DMGTileFetchStats dmg_tile_fetch_stats_;
     
     /**
+     * Step 0498: Ring buffer para eventos BufferTrace con CRC32.
+     * Permite rastrear la integridad del contenido del framebuffer a través
+     * del pipeline (PPU → RGB → Renderer → Present).
+     */
+    static constexpr size_t BUFFER_TRACE_RING_SIZE = 128;
+    BufferTraceEvent buffer_trace_ring_[BUFFER_TRACE_RING_SIZE];
+    size_t buffer_trace_ring_head_;
+    
+    /**
      * Step 0488: Calcula estadísticas del framebuffer actual.
      * 
      * Analiza el framebuffer presentado (front) y calcula:
@@ -865,6 +936,29 @@ private:
      * Gateado por VIBOY_DEBUG_PRESENT_TRACE=1 para no penalizar rendimiento.
      */
     void compute_three_buffer_stats();
+    
+    /**
+     * Step 0498: Calcula CRC32 de un buffer completo.
+     * 
+     * Usa el algoritmo CRC32 estándar (polinomio 0xEDB88320) para calcular
+     * el checksum de un buffer de datos.
+     * 
+     * @param data Vector con los datos a calcular
+     * @param size Tamaño en bytes a procesar
+     * @return CRC32 del buffer
+     */
+    uint32_t compute_crc32_full(const std::vector<uint8_t>& data, size_t size) const;
+    
+    /**
+     * Step 0498: Calcula un ID único del buffer (hash simple).
+     * 
+     * Usa un hash simple de los primeros 100 bytes para identificar
+     * la identidad del buffer (para detectar si es el mismo buffer).
+     * 
+     * @param data Vector con los datos del buffer
+     * @return Hash único del buffer
+     */
+    uint32_t compute_buffer_uid(const std::vector<uint8_t>& data) const;
 };
 
 #endif // PPU_HPP
