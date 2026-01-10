@@ -59,6 +59,7 @@ struct CGBPaletteWriteStats {
 
 /**
  * Step 0494: Estructura para tracking de writes a IF/IE.
+ * Step 0500: Ampliada con historial de últimos 5 writes y valores actuales.
  */
 struct IFIETracking {
     uint16_t last_if_write_pc;
@@ -71,21 +72,81 @@ struct IFIETracking {
     uint8_t last_ie_applied_value;
     uint32_t ie_write_count;
     
+    // Step 0500: Últimos 5 writes a IF
+    struct IFWriteEvent {
+        uint16_t pc;
+        uint8_t written;
+        uint8_t applied;
+        
+        IFWriteEvent() : pc(0xFFFF), written(0), applied(0) {}
+    };
+    static constexpr size_t IF_WRITE_HISTORY_SIZE = 5;
+    IFWriteEvent if_write_history_[IF_WRITE_HISTORY_SIZE];
+    size_t if_write_history_head_;
+    
+    // Step 0500: Últimos 5 writes a IE
+    struct IEWriteEvent {
+        uint16_t pc;
+        uint8_t written;
+        
+        IEWriteEvent() : pc(0xFFFF), written(0) {}
+    };
+    static constexpr size_t IE_WRITE_HISTORY_SIZE = 5;
+    IEWriteEvent ie_write_history_[IE_WRITE_HISTORY_SIZE];
+    size_t ie_write_history_head_;
+    
+    // Step 0500: Valores actuales de IF/IE
+    uint8_t if_current;  // Valor actual de IF
+    uint8_t ie_current;  // Valor actual de IE
+    
     IFIETracking() : last_if_write_pc(0xFFFF), last_if_write_value(0), last_if_applied_value(0),
                      if_write_count(0), last_ie_write_pc(0xFFFF), last_ie_write_value(0),
-                     last_ie_applied_value(0), ie_write_count(0) {}
+                     last_ie_applied_value(0), ie_write_count(0),
+                     if_write_history_head_(0), ie_write_history_head_(0),
+                     if_current(0), ie_current(0) {
+        for (size_t i = 0; i < IF_WRITE_HISTORY_SIZE; i++) {
+            if_write_history_[i] = IFWriteEvent();
+        }
+        for (size_t i = 0; i < IE_WRITE_HISTORY_SIZE; i++) {
+            ie_write_history_[i] = IEWriteEvent();
+        }
+    }
 };
 
 /**
  * Step 0494: Estructura para tracking de writes a HRAM[0xFFC5].
+ * Step 0500: Ampliada con write_count_in_irq_vblank y ring de últimos 8 writes.
  */
 struct HRAMFFC5Tracking {
     uint16_t last_write_pc;
     uint8_t last_write_value;
-    uint32_t write_count;
+    uint32_t write_count_total;
+    uint32_t write_count_in_irq_vblank;  // Crítico: cuántas escrituras ocurren mientras se sirve VBlank
     uint32_t first_write_frame;
     
-    HRAMFFC5Tracking() : last_write_pc(0xFFFF), last_write_value(0), write_count(0), first_write_frame(0) {}
+    // Step 0500: Mini tabla de últimos 8 writes
+    struct FFC5WriteEvent {
+        uint16_t pc;
+        uint8_t value;
+        uint64_t frame_id;  // Si existe
+        bool in_vblank_irq;  // Si ocurrió durante VBlank IRQ
+        
+        FFC5WriteEvent() : pc(0xFFFF), value(0), frame_id(0), in_vblank_irq(false) {}
+    };
+    static constexpr size_t FFC5_WRITE_RING_SIZE = 8;
+    FFC5WriteEvent write_ring_[FFC5_WRITE_RING_SIZE];
+    size_t write_ring_head_;
+    
+    // Alias para compatibilidad (write_count -> write_count_total)
+    uint32_t write_count;  // Alias de write_count_total
+    
+    HRAMFFC5Tracking() : last_write_pc(0xFFFF), last_write_value(0), 
+                         write_count_total(0), write_count_in_irq_vblank(0), 
+                         first_write_frame(0), write_ring_head_(0), write_count(0) {
+        for (size_t i = 0; i < FFC5_WRITE_RING_SIZE; i++) {
+            write_ring_[i] = FFC5WriteEvent();
+        }
+    }
 };
 
 /**
@@ -142,9 +203,53 @@ struct IOWatchFF68FF6B {
 };
 
 /**
+ * Step 0501: Estructura para eventos de write a VRAM (audit detallado).
+ * 
+ * Captura información completa de cada intento de write a VRAM para diagnóstico.
+ */
+struct VRAMWriteEvent {
+    uint32_t frame_id;        // Frame ID (si disponible; si no, frame_counter)
+    uint16_t pc;              // PC donde se escribió
+    uint16_t addr;            // Dirección VRAM (0x8000-0x9FFF)
+    uint8_t value;            // Valor escrito
+    uint8_t region;           // TILE_DATA (8000-97FF) / TILE_MAP (9800-9FFF)
+    uint8_t lcdc;             // LCDC en el momento del write
+    uint8_t lcd_on;           // LCD está ON (bit 7 de LCDC)
+    uint8_t stat_mode;        // STAT mode (0-3)
+    uint8_t ly;               // LY en el momento del write
+    bool allowed;             // Si el write fue permitido
+    uint8_t blocked_reason;   // OK / LCD_ON_MODE3_BLOCK / LCD_ON_MODE2_BLOCK / LCD_OFF_ALLOWED / OTHER
+    uint8_t readback_value;   // Valor leído inmediatamente después del write
+    bool readback_matches;    // Si readback coincide con value escrito
+    bool forced;              // Si el write fue forzado (VIBOY_VRAM_FORCE_WRITES=1)
+};
+
+/**
+ * Step 0501: Estructura para estadísticas agregadas de writes a VRAM.
+ */
+struct VRAMWriteAuditStats {
+    // Contadores agregados
+    uint32_t tiledata_write_attempts;
+    uint32_t tiledata_write_allowed;
+    uint32_t tiledata_write_blocked;
+    uint32_t tiledata_write_readback_mismatch;
+    
+    uint32_t tilemap_write_attempts;
+    uint32_t tilemap_write_allowed;
+    uint32_t tilemap_write_blocked;
+    uint32_t tilemap_write_readback_mismatch;
+    
+    // Último bloqueo (para debugging)
+    uint16_t last_blocked_pc;
+    uint16_t last_blocked_addr;
+    uint8_t last_blocked_reason;
+};
+
+/**
  * Step 0490: Estructura para estadísticas de writes a VRAM.
  * Step 0491: Ampliada para separar attempts vs nonzero writes + bank + VBK.
  * Step 0492: Ampliada con tracking de Clear VRAM y writes después del clear.
+ * Step 0501: Ampliada con VRAMWriteAuditStats integrada.
  * 
  * Permite rastrear si el juego está escribiendo a VRAM y si está bloqueado por Mode 3.
  */
@@ -201,6 +306,14 @@ struct VRAMWriteStats {
     TiledataWriteEvent tiledata_write_ring_[TILEDATA_WRITE_RING_SIZE];
     uint32_t tiledata_write_ring_head_;  // Índice del siguiente slot a escribir
     bool tiledata_write_ring_active_;  // Solo activo después del clear
+    
+    // --- Step 0501: VRAM Write Audit Stats ---
+    VRAMWriteAuditStats audit_stats_;
+    
+    // --- Step 0501: Ring buffer de eventos VRAM (128 eventos) ---
+    static constexpr size_t VRAM_WRITE_RING_SIZE = 128;
+    VRAMWriteEvent vram_write_ring_[VRAM_WRITE_RING_SIZE];
+    size_t vram_write_ring_head_;
 };
 
 /**
@@ -2049,6 +2162,23 @@ public:
      * @return Referencia constante a VRAMWriteStats con las estadísticas
      */
     const VRAMWriteStats& get_vram_write_stats() const;
+    
+    /**
+     * Step 0501: Obtiene estadísticas agregadas de audit de writes a VRAM.
+     * 
+     * Devuelve métricas detalladas sobre attempts, allowed, blocked, readback mismatch.
+     * 
+     * @return Referencia constante a VRAMWriteAuditStats con las estadísticas de audit
+     */
+    const VRAMWriteAuditStats& get_vram_write_audit_stats() const;
+    
+    /**
+     * Step 0501: Obtiene el ring buffer de eventos VRAM (últimos N eventos).
+     * 
+     * @param max_events Número máximo de eventos a retornar (máximo VRAM_WRITE_RING_SIZE)
+     * @return Vector con los últimos eventos VRAMWriteEvent (más recientes primero)
+     */
+    std::vector<VRAMWriteEvent> get_vram_write_ring(size_t max_events = 128) const;
     
     /**
      * Step 0494: Obtiene tracking de writes a IF/IE.

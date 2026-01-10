@@ -86,6 +86,20 @@ struct BufferTraceEvent {
 };
 
 /**
+ * Step 0501: Estructura para estadísticas de modo PPU por frame.
+ * 
+ * Permite verificar si el PPU está en el modo correcto y detectar problemas
+ * de timing que podrían causar bloqueos de VRAM.
+ */
+struct PPUModeStats {
+    uint32_t mode_entries_count[4];  // Mode 0, 1, 2, 3 - número de veces que se entra en cada modo
+    uint32_t mode_cycles[4];         // Ciclos totales en cada modo
+    uint8_t ly_min;
+    uint8_t ly_max;
+    uint32_t frames_with_mode3_stuck;  // Si mode3 dura demasiado (> 456*144 ciclos)
+};
+
+/**
  * PPU (Pixel Processing Unit) - Unidad de Procesamiento de Píxeles
  * 
  * Esta clase implementa el motor de timing y estado de la PPU de la Game Boy.
@@ -440,6 +454,16 @@ public:
      * @return Referencia constante a DMGTileFetchStats con las estadísticas
      */
     const DMGTileFetchStats& get_dmg_tile_fetch_stats() const;
+    
+    /**
+     * Step 0501: Obtiene estadísticas de modo PPU por frame.
+     * 
+     * Devuelve métricas sobre el tiempo que la PPU pasa en cada modo (0-3),
+     * número de entradas a cada modo, y detección de problemas de timing.
+     * 
+     * @return Referencia constante a PPUModeStats con las estadísticas
+     */
+    const PPUModeStats& get_ppu_mode_stats() const;
     
     /**
      * Step 0498: Obtiene el ring buffer de eventos BufferTrace.
@@ -904,6 +928,12 @@ private:
      */
     ThreeBufferStats three_buffer_stats_;
     DMGTileFetchStats dmg_tile_fetch_stats_;
+    
+    /**
+     * Step 0501: Estadísticas de modo PPU por frame.
+     * Se actualizan en cada llamada a update_mode() y step().
+     */
+    PPUModeStats ppu_mode_stats_;
     
     /**
      * Step 0498: Ring buffer para eventos BufferTrace con CRC32.

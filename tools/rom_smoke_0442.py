@@ -3017,6 +3017,32 @@ class ROMSmokeRunner:
                             irq_reality = {'error': str(e)}
                         # -----------------------------------------
                         
+                        # Step 0501: Obtener clasificación DMG v3 (VRAM Audit + PPU Mode Stats)
+                        dmg_classification_v3 = "UNKNOWN"
+                        dmg_details_v3 = {}
+                        try:
+                            if not is_cgb:
+                                dmg_classification_v3, dmg_details_v3 = self._classify_dmg_quick_v3(self.ppu, self.mmu, self._renderer)
+                        except Exception as e:
+                            dmg_classification_v3 = f"ERROR({str(e)[:50]})"
+                        
+                        # Step 0500/0501: Obtener métricas adicionales (compatibilidad con v2)
+                        interrupt_taken_v2 = {}
+                        reti_count_v2 = 0
+                        hram_ffc5_tracking_v2 = None
+                        if_ie_tracking_v2 = None
+                        try:
+                            if hasattr(self.cpu, 'get_interrupt_taken_counts'):
+                                interrupt_taken_v2 = self.cpu.get_interrupt_taken_counts() or {}
+                            if hasattr(self.cpu, 'get_reti_count'):
+                                reti_count_v2 = self.cpu.get_reti_count()
+                            if hasattr(self.mmu, 'get_hram_ffc5_tracking'):
+                                hram_ffc5_tracking_v2 = self.mmu.get_hram_ffc5_tracking()
+                            if hasattr(self.mmu, 'get_if_ie_tracking'):
+                                if_ie_tracking_v2 = self.mmu.get_if_ie_tracking()
+                        except:
+                            pass
+                        
                         # Clasificación del bloqueo
                         after_clear_snapshot = {
                             'frames_since_clear': frames_since_clear,
@@ -3034,6 +3060,24 @@ class ROMSmokeRunner:
                             'disasm_hotspot_top1': disasm_hotspot,
                             'disasm_branch_dest': disasm_branch_dest,
                             'IRQReality': irq_reality,  # Step 0494
+                            # Step 0501: DMGQuickClassifierV3 con VRAM Audit + PPU Mode Stats
+                            'DMGQuickClassifierV3': {
+                                'classification': dmg_classification_v3,
+                                'details': dmg_details_v3,
+                                'pc_hotspot_top1': pc_hotspots_list[0] if pc_hotspots_list else None,
+                                'irq_taken_vblank': interrupt_taken_v2.get('vblank', 0),
+                                'reti_count': reti_count_v2,
+                                'hram_ffc5_last_value': hram_ffc5_tracking_v2.get('last_write_value') if hram_ffc5_tracking_v2 else None,
+                                'hram_ffc5_write_count_total': hram_ffc5_tracking_v2.get('write_count_total', 0) if hram_ffc5_tracking_v2 else 0,
+                                'hram_ffc5_write_count_in_vblank': hram_ffc5_tracking_v2.get('write_count_in_irq_vblank', 0) if hram_ffc5_tracking_v2 else 0,
+                                'lcdc': lcdc_val,
+                                'stat': stat_val,
+                                'ly': ly_val,
+                                'vram_tiledata_nz': vram_write_stats.get('tiledata_nonzero_bank0', 0) if vram_write_stats else 0,
+                                'vram_tilemap_nz': vram_write_stats.get('tilemap_nonzero_bank0', 0) if vram_write_stats else 0,
+                                'vram_attempts_after_clear': vram_write_stats.get('tiledata_attempts_after_clear', 0) if vram_write_stats else 0,
+                                'vram_nonzero_after_clear': vram_write_stats.get('tiledata_nonzero_after_clear', 0) if vram_write_stats else 0,
+                            } if not is_cgb else None,
                         }
                         
                         classification = self._classify_dmg_blockage(after_clear_snapshot)
@@ -3154,6 +3198,24 @@ class ROMSmokeRunner:
     def _classify_dmg_quick(self, ppu, mmu, renderer=None):
         """
         Step 0499: Clasifica rápidamente el estado DMG para diagnóstico.
+        Step 0500: Ampliado con señales de progreso (v2).
+        Step 0501: Usa v3 con VRAM Write Audit y PPU Mode Stats (v3).
+        
+        Args:
+            ppu: Instancia de PPU
+            mmu: Instancia de MMU
+            renderer: Instancia de Renderer (opcional)
+        
+        Returns:
+            Tupla (classification, details) donde:
+            - classification: String con la clasificación
+            - details: Dict con detalles específicos
+        """
+        return self._classify_dmg_quick_v3(ppu, mmu, renderer)
+    
+    def _classify_dmg_quick_v2(self, ppu, mmu, renderer=None):
+        """
+        Step 0500: Clasificación DMG v2 con señales de progreso.
         
         Args:
             ppu: Instancia de PPU
@@ -3196,10 +3258,84 @@ class ROMSmokeRunner:
         except:
             pass
         
+        # Step 0500: IRQ stats
+        interrupt_taken = {}
+        reti_count = 0
+        try:
+            if hasattr(self.cpu, 'get_interrupt_taken_counts'):
+                interrupt_taken = self.cpu.get_interrupt_taken_counts() or {}
+            if hasattr(self.cpu, 'get_reti_count'):
+                reti_count = self.cpu.get_reti_count()
+        except:
+            pass
+        
+        # Step 0500: HRAM[0xFFC5] stats
+        hram_ffc5_tracking = None
+        try:
+            if hasattr(mmu, 'get_hram_ffc5_tracking'):
+                hram_ffc5_tracking = mmu.get_hram_ffc5_tracking()
+        except:
+            pass
+        
+        # Step 0500: IF/IE stats
+        if_ie_tracking = None
+        try:
+            if hasattr(mmu, 'get_if_ie_tracking'):
+                if_ie_tracking = mmu.get_if_ie_tracking()
+        except:
+            pass
+        
+        # Step 0500: IO reads top 3 (para detectar lecturas dominantes a FFC5)
+        io_reads_top = []
+        try:
+            # Obtener IO reads desde snapshot AfterClear si está disponible
+            # Por ahora, intentamos obtenerlo de alguna forma
+            # (esto se completará cuando se añada al snapshot)
+            pass
+        except:
+            pass
+        
         # Clasificar
         classification = "UNKNOWN"
         details = {}
         
+        # Step 0500: WAITING_ON_FFC5: hotspot + lecturas dominantes a FFC5 y write_count_in_vblank == 0
+        if pc_hotspot_1 is not None:
+            # Verificar si hay lecturas dominantes a FFC5
+            ffc5_reads = 0
+            # TODO: Obtener desde snapshot AfterClear cuando esté disponible
+            # Por ahora, verificamos si hay tracking de FFC5
+            if hram_ffc5_tracking:
+                write_count_in_vblank = hram_ffc5_tracking.get('write_count_in_irq_vblank', 0)
+                if write_count_in_vblank == 0:
+                    # Verificar si hay muchas lecturas (esto se completará con snapshot)
+                    # Por ahora, clasificamos si hay hotspot y no hay writes en VBlank
+                    if hotspot_count > 1000:
+                        classification = "WAITING_ON_FFC5"
+                        details['hotspot_pc'] = f'0x{pc_hotspot_1:04X}'
+                        details['ffc5_write_count_in_vblank'] = 0
+                        return classification, details
+        
+        # Step 0500: IRQ_TAKEN_BUT_NO_RETI: taken aumenta y reti_count no
+        if interrupt_taken:
+            vblank_taken = interrupt_taken.get('vblank', 0)
+            if vblank_taken > 0 and reti_count == 0:
+                classification = "IRQ_TAKEN_BUT_NO_RETI"
+                details['irq_taken_vblank'] = vblank_taken
+                details['reti_count'] = reti_count
+                return classification, details
+        
+        # Step 0500: IRQ_OK_BUT_FLAG_NOT_SET: taken y reti ok pero FFC5 no cambia
+        if interrupt_taken and interrupt_taken.get('vblank', 0) > 0 and reti_count > 0:
+            vblank_taken = interrupt_taken.get('vblank', 0)
+            if hram_ffc5_tracking and hram_ffc5_tracking.get('write_count_total', 0) == 0:
+                classification = "IRQ_OK_BUT_FLAG_NOT_SET"
+                details['irq_taken_vblank'] = vblank_taken
+                details['reti_count'] = reti_count
+                details['ffc5_write_count_total'] = 0
+                return classification, details
+        
+        # Clasificaciones básicas (de v1)
         # 1. CPU no progresa / se queda en loop duro
         if pc_hotspot_1 is not None and hotspot_count > 100000:
             classification = "CPU_LOOP"
@@ -3249,6 +3385,212 @@ class ROMSmokeRunner:
             details['rgb_nonwhite'] = three_buf_stats.get('rgb_nonwhite_count', 0)
         
         return classification, details
+    
+    def _classify_dmg_quick_v3(self, ppu, mmu, renderer=None):
+        """
+        Step 0501: Clasificación DMG v3 con VRAM Write Audit y PPU Mode Stats.
+        
+        Este clasificador usa las nuevas métricas de:
+        - VRAM Write Audit Stats: detecta si writes están siendo bloqueados, redirigidos, o mal aplicados
+        - PPU Mode Stats: detecta problemas de timing del PPU (mode3 stuck, etc.)
+        - VRAM Write Ring: eventos detallados de writes VRAM con estado PPU
+        
+        Args:
+            ppu: Instancia de PPU
+            mmu: Instancia de MMU
+            renderer: Instancia de Renderer (opcional)
+        
+        Returns:
+            Tupla (classification, details) donde:
+            - classification: String con la clasificación
+            - details: Dict con detalles específicos
+        """
+        # Obtener VRAM Write Audit Stats
+        vram_audit_stats = {}
+        try:
+            if hasattr(mmu, 'get_vram_write_audit_stats'):
+                vram_audit_stats = mmu.get_vram_write_audit_stats() or {}
+        except:
+            pass
+        
+        # Obtener PPU Mode Stats
+        ppu_mode_stats = {}
+        try:
+            if hasattr(ppu, 'get_ppu_mode_stats'):
+                ppu_mode_stats = ppu.get_ppu_mode_stats() or {}
+        except:
+            pass
+        
+        # Obtener VRAM Write Ring (últimos eventos)
+        vram_write_ring = []
+        try:
+            if hasattr(mmu, 'get_vram_write_ring'):
+                vram_write_ring = mmu.get_vram_write_ring(20) or []  # Últimos 20 eventos
+        except:
+            pass
+        
+        # Obtener métricas básicas
+        lcdc = mmu.read(0xFF40)
+        lcd_on = (lcdc & 0x80) != 0
+        stat = mmu.read(0xFF41)
+        ly = mmu.read(0xFF44)
+        
+        # Clasificar
+        classification = "UNKNOWN"
+        details = {}
+        
+        # 1. VRAM_BLOCKED_INCORRECTLY: Intentos de write pero todos bloqueados incorrectamente
+        if vram_audit_stats:
+            tiledata_attempts = vram_audit_stats.get('tiledata_write_attempts', 0)
+            tiledata_blocked = vram_audit_stats.get('tiledata_write_blocked', 0)
+            tiledata_allowed = vram_audit_stats.get('tiledata_write_allowed', 0)
+            
+            if tiledata_attempts > 0:
+                blocked_ratio = tiledata_blocked / tiledata_attempts if tiledata_attempts > 0 else 0
+                
+                # Si más del 90% de los intentos están bloqueados y LCD está ON
+                if blocked_ratio > 0.9 and lcd_on and tiledata_attempts > 10:
+                    last_blocked_reason = vram_audit_stats.get('last_blocked_reason_str', 'UNKNOWN')
+                    
+                    # Verificar si el bloqueo es correcto (Mode 3) o incorrecto (otros modos)
+                    if vram_write_ring:
+                        # Analizar últimos eventos bloqueados
+                        recent_blocked = [e for e in vram_write_ring if not e.get('allowed', False)]
+                        if recent_blocked:
+                            # Verificar modos STAT de eventos bloqueados
+                            blocked_modes = [e.get('stat_mode', 255) for e in recent_blocked[-10:]]
+                            non_mode3_blocked = [m for m in blocked_modes if m != 3]
+                            
+                            if non_mode3_blocked:
+                                # Hay bloqueos en modos que NO deberían bloquear (según Pan Docs)
+                                classification = "VRAM_BLOCKED_INCORRECTLY"
+                                details['tiledata_attempts'] = tiledata_attempts
+                                details['tiledata_blocked'] = tiledata_blocked
+                                details['tiledata_allowed'] = tiledata_allowed
+                                details['blocked_ratio'] = f"{blocked_ratio:.2%}"
+                                details['last_blocked_reason'] = last_blocked_reason
+                                details['blocked_in_modes'] = list(set(blocked_modes))
+                                details['non_mode3_blocked_count'] = len(non_mode3_blocked)
+                                return classification, details
+                    
+                    # Si todos los bloqueos son Mode 3 pero hay demasiados, podría ser problema de timing
+                    if last_blocked_reason == "LCD_ON_MODE3_BLOCK":
+                        # Verificar si Mode 3 está stuck (PPU mode stats)
+                        if ppu_mode_stats:
+                            frames_mode3_stuck = ppu_mode_stats.get('frames_with_mode3_stuck', 0)
+                            if frames_mode3_stuck > 0:
+                                classification = "VRAM_BLOCKED_MODE3_STUCK"
+                                details['tiledata_attempts'] = tiledata_attempts
+                                details['tiledata_blocked'] = tiledata_blocked
+                                details['frames_mode3_stuck'] = frames_mode3_stuck
+                                return classification, details
+        
+        # 2. VRAM_WRITE_READBACK_MISMATCH: Writes permitidos pero readback no coincide
+        if vram_audit_stats:
+            tiledata_mismatch = vram_audit_stats.get('tiledata_write_readback_mismatch', 0)
+            tiledata_allowed = vram_audit_stats.get('tiledata_write_allowed', 0)
+            
+            if tiledata_allowed > 0:
+                mismatch_ratio = tiledata_mismatch / tiledata_allowed if tiledata_allowed > 0 else 0
+                
+                if mismatch_ratio > 0.1 and tiledata_mismatch > 5:
+                    classification = "VRAM_WRITE_READBACK_MISMATCH"
+                    details['tiledata_allowed'] = tiledata_allowed
+                    details['tiledata_readback_mismatch'] = tiledata_mismatch
+                    details['mismatch_ratio'] = f"{mismatch_ratio:.2%}"
+                    
+                    # Buscar ejemplo en el ring
+                    if vram_write_ring:
+                        mismatched_events = [e for e in vram_write_ring if not e.get('readback_matches', True)]
+                        if mismatched_events:
+                            example = mismatched_events[0]
+                            details['example_pc'] = f"0x{example.get('pc', 0):04X}"
+                            details['example_addr'] = f"0x{example.get('addr', 0):04X}"
+                            details['example_written'] = f"0x{example.get('value', 0):02X}"
+                            details['example_readback'] = f"0x{example.get('readback_value', 0):02X}"
+                    
+                    return classification, details
+        
+        # 3. PPU_MODE3_STUCK: PPU está en Mode 3 demasiado tiempo
+        if ppu_mode_stats:
+            frames_mode3_stuck = ppu_mode_stats.get('frames_with_mode3_stuck', 0)
+            mode3_cycles = ppu_mode_stats.get('mode_cycles', [0, 0, 0, 0])[3] if len(ppu_mode_stats.get('mode_cycles', [])) > 3 else 0
+            
+            if frames_mode3_stuck > 5:
+                classification = "PPU_MODE3_STUCK"
+                details['frames_mode3_stuck'] = frames_mode3_stuck
+                details['mode3_cycles'] = mode3_cycles
+                return classification, details
+            
+            # Verificar si Mode 3 está ocupando demasiado tiempo relativo
+            total_mode_cycles = sum(ppu_mode_stats.get('mode_cycles', [0, 0, 0, 0]))
+            if total_mode_cycles > 0:
+                mode3_ratio = mode3_cycles / total_mode_cycles
+                # Mode 3 normalmente ocupa ~37% del tiempo (172/456 ciclos por línea visible)
+                # Si ocupa > 60%, podría haber un problema
+                if mode3_ratio > 0.60 and mode3_cycles > 10000:
+                    classification = "PPU_MODE3_DOMINANT"
+                    details['mode3_cycles'] = mode3_cycles
+                    details['total_mode_cycles'] = total_mode_cycles
+                    details['mode3_ratio'] = f"{mode3_ratio:.2%}"
+                    return classification, details
+        
+        # 4. VRAM_NO_ATTEMPTS: No hay intentos de escribir a VRAM (programa no intenta cargar tiles)
+        if vram_audit_stats:
+            tiledata_attempts = vram_audit_stats.get('tiledata_write_attempts', 0)
+            tilemap_attempts = vram_audit_stats.get('tilemap_write_attempts', 0)
+            
+            if tiledata_attempts == 0 and tilemap_attempts == 0 and lcd_on:
+                # Verificar si el programa está ejecutando (PC hotspots)
+                pc_hotspot_1 = None
+                try:
+                    if hasattr(mmu, 'get_pc_hotspots'):
+                        hotspots = mmu.get_pc_hotspots()
+                        if hotspots and len(hotspots) > 0:
+                            pc_hotspot_1, _ = hotspots[0]
+                except:
+                    pass
+                
+                if pc_hotspot_1 is not None:
+                    classification = "VRAM_NO_ATTEMPTS"
+                    details['tiledata_attempts'] = 0
+                    details['tilemap_attempts'] = 0
+                    details['lcd_on'] = lcd_on
+                    details['pc_hotspot'] = f"0x{pc_hotspot_1:04X}"
+                    return classification, details
+        
+        # 5. VRAM_ALLOWED_BUT_NOT_READABLE: Writes permitidos pero luego no se pueden leer
+        # (Similar a readback mismatch pero más específico)
+        if vram_audit_stats and vram_write_ring:
+            allowed_events = [e for e in vram_write_ring if e.get('allowed', False)]
+            if allowed_events:
+                # Verificar si hay eventos donde se escribió pero luego el readback no coincide
+                problematic = [e for e in allowed_events if not e.get('readback_matches', True)]
+                if len(problematic) > len(allowed_events) * 0.2:  # Más del 20% tiene problemas
+                    classification = "VRAM_ALLOWED_BUT_NOT_READABLE"
+                    details['allowed_events'] = len(allowed_events)
+                    details['readback_mismatches'] = len(problematic)
+                    details['mismatch_ratio'] = f"{len(problematic) / len(allowed_events):.2%}"
+                    return classification, details
+        
+        # 6. Si no tenemos métricas nuevas, aún intentamos usar v2 como fallback interno
+        # pero siempre retornamos algo (nunca UNKNOWN si tenemos datos básicos)
+        
+        # 7. Si tenemos métricas pero no detectamos problemas específicos, usar v2 como base
+        v2_classification, v2_details = self._classify_dmg_quick_v2(ppu, mmu, renderer)
+        
+        # Añadir métricas v3 a los detalles
+        v2_details['v3_vram_audit_available'] = bool(vram_audit_stats)
+        v2_details['v3_ppu_mode_stats_available'] = bool(ppu_mode_stats)
+        if vram_audit_stats:
+            v2_details['v3_tiledata_attempts'] = vram_audit_stats.get('tiledata_write_attempts', 0)
+            v2_details['v3_tiledata_allowed'] = vram_audit_stats.get('tiledata_write_allowed', 0)
+            v2_details['v3_tiledata_blocked'] = vram_audit_stats.get('tiledata_write_blocked', 0)
+        if ppu_mode_stats:
+            v2_details['v3_frames_mode3_stuck'] = ppu_mode_stats.get('frames_with_mode3_stuck', 0)
+            v2_details['v3_mode_cycles'] = ppu_mode_stats.get('mode_cycles', [0, 0, 0, 0])
+        
+        return v2_classification, v2_details
     
     def _classify_dmg_blockage(self, after_clear_snapshot: dict) -> str:
         """

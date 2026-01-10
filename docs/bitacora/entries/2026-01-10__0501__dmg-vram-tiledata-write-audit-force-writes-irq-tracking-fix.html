@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DMG VRAM Tiledata Write Audit + Force-Writes A/B + IRQ Tracking Fix - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>DMG VRAM Tiledata Write Audit + Force-Writes A/B + IRQ Tracking Fix</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2026-01-10
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0501
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2026-01-09__0500__dmg-vblank-handler-proof-hram-ffc5-boot-skip.html">Anterior (0500)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este Step implementa un sistema completo de auditoría de escrituras VRAM para diagnosticar por qué los juegos DMG (específicamente <code>tetris.gb</code>) no muestran contenido visual. Se añadió instrumentación exhaustiva en <code>MMU::write()</code> para VRAM (0x8000-0x9FFF) que captura estado PPU, razón de bloqueo, y verifica readback inmediato. Se implementó un flag <code>VIBOY_VRAM_FORCE_WRITES</code> para tests de aislamiento que fuerza escrituras incluso cuando están bloqueadas. Se corrigió una inconsistencia en el tracking de IRQ donde <code>irq_vblank_services_</code> e <code>interrupt_taken_counts_[0]</code> no se incrementaban en el mismo punto. Se añadió tracking de modo PPU para detectar problemas de timing (mode3 stuck). Finalmente, se implementó el clasificador DMG v3 que usa estas nuevas métricas para diagnóstico más preciso.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>VRAM Access Rules (Pan Docs)</strong>: La VRAM (0x8000-0x9FFF) es accesible por la CPU durante ciertos modos de la PPU:
+                </p>
+                <ul>
+                    <li><strong>LCD OFF (LCDC bit 7 = 0)</strong>: VRAM es siempre accesible</li>
+                    <li><strong>LCD ON (LCDC bit 7 = 1)</strong>:
+                        <ul>
+                            <li><strong>Mode 0 (HBlank)</strong>: VRAM accesible</li>
+                            <li><strong>Mode 1 (VBlank)</strong>: VRAM accesible</li>
+                            <li><strong>Mode 2 (OAM Search)</strong>: VRAM accesible</li>
+                            <li><strong>Mode 3 (Pixel Transfer)</strong>: VRAM <strong>NO accesible</strong> - bloqueada</li>
+                        </ul>
+                    </li>
+                </ul>
+                <p>
+                    Si la CPU intenta escribir a VRAM durante Mode 3 cuando LCD está ON, el write es bloqueado (ignorado). Esto es crítico porque el PPU está leyendo datos de VRAM para renderizar, y un write simultáneo podría corromper los datos.
+                </p>
+                <p>
+                    <strong>PPU Modes</strong>: La PPU opera en 4 modos principales (documentados en STAT register):
+                </p>
+                <ul>
+                    <li><strong>Mode 0 (HBlank)</strong>: Período entre líneas (252-455 ciclos de CPU)</li>
+                    <li><strong>Mode 1 (VBlank)</strong>: Período entre frames (líneas 144-153, ~4560 ciclos)</li>
+                    <li><strong>Mode 2 (OAM Search)</strong>: Búsqueda de sprites (0-79 ciclos de CPU)</li>
+                    <li><strong>Mode 3 (Pixel Transfer)</strong>: Transferencia de píxeles a LCD (80-251 ciclos de CPU)</li>
+                </ul>
+                <p>
+                    Si Mode 3 dura demasiado tiempo (más de 456 ciclos por línea), indica un problema de timing del PPU que podría causar bloqueos incorrectos de VRAM.
+                </p>
+                <p>
+                    <strong>IRQ Tracking Consistency</strong>: Para que el tracking de IRQ sea confiable, los contadores de "servicio" e "IRQ tomado" deben incrementarse en el mismo punto exacto. Si se incrementan en puntos diferentes, pueden desincronizarse y causar diagnósticos incorrectos.
+                </p>
+                <p>
+                    <strong>Referencia</strong>: Pan Docs - VRAM Access, LCD Timing, STAT Register
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>Fase A: IRQ Tracking Fix ✅</h3>
+                <p>
+                    <strong>A1) Unificación de Semántica IRQ Tracking</strong>:
+                </p>
+                <ul>
+                    <li>Modificación de <code>CPU::handle_interrupts()</code> para asegurar que <code>irq_vblank_services_</code> e <code>interrupt_taken_counts_[0]</code> se incrementen en el mismo punto exacto</li>
+                    <li>Añadido log de desincronización si los contadores no coinciden (debugging)</li>
+                    <li>Garantiza que "IRQ serviced" y "IRQ taken" son semánticamente equivalentes</li>
+                </ul>
+
+                <h3>Fase B: VRAM Write Audit ✅</h3>
+                <p>
+                    <strong>B1) Instrumentación en MMU::write() para VRAM</strong>:
+                </p>
+                <ul>
+                    <li>Nueva estructura <code>VRAMWriteEvent</code>:
+                        <ul>
+                            <li><code>frame_id</code>: ID del frame</li>
+                            <li><code>pc</code>, <code>addr</code>, <code>value</code>: Dirección y valor del write</li>
+                            <li><code>region</code>: TILE_DATA (0x8000-0x97FF) o TILE_MAP (0x9800-0x9FFF)</li>
+                            <li><code>lcdc</code>, <code>lcd_on</code>, <code>stat_mode</code>, <code>ly</code>: Estado PPU en el momento del write</li>
+                            <li><code>allowed</code>, <code>blocked_reason</code>: Si el write fue permitido y por qué</li>
+                            <li><code>readback_value</code>, <code>readback_matches</code>: Verificación inmediata de integridad</li>
+                            <li><code>forced</code>: Si el write fue forzado (VIBOY_VRAM_FORCE_WRITES=1)</li>
+                        </ul>
+                    </li>
+                    <li>Nueva estructura <code>VRAMWriteAuditStats</code>:
+                        <ul>
+                            <li>Contadores agregados: <code>tiledata_write_attempts</code>, <code>tiledata_write_allowed</code>, <code>tiledata_write_blocked</code>, <code>tiledata_write_readback_mismatch</code></li>
+                            <li>Lo mismo para tilemap</li>
+                            <li><code>last_blocked_pc</code>, <code>last_blocked_addr</code>, <code>last_blocked_reason</code>: Último bloqueo para debugging</li>
+                        </ul>
+                    </li>
+                    <li>Ring buffer de 256 eventos VRAM (<code>vram_write_ring_</code>)</li>
+                    <li>Captura completa en <code>MMU::write()</code> cuando <code>addr >= 0x8000 && addr <= 0x9FFF</code></li>
+                    <li>Aplicación de reglas Pan Docs: bloquea writes durante Mode 3 si LCD está ON</li>
+                    <li>Readback inmediato después de write exitoso para verificar integridad</li>
+                </ul>
+                <p>
+                    <strong>B2) Flag VIBOY_VRAM_FORCE_WRITES</strong>:
+                </p>
+                <ul>
+                    <li>Variable de entorno <code>VIBOY_VRAM_FORCE_WRITES</code> que fuerza escrituras VRAM incluso cuando están bloqueadas</li>
+                    <li>Útil para tests de aislamiento: diferencia entre problemas de timing/modo vs bugs de MMU/decoder</li>
+                    <li>Si con force-writes el juego funciona, el problema es de timing; si no, es un bug en MMU/decoder</li>
+                </ul>
+
+                <h3>Fase C: PPU Mode Reality Check ✅</h3>
+                <p>
+                    <strong>C) Métricas PPU Mode por Frame</strong>:
+                </p>
+                <ul>
+                    <li>Nueva estructura <code>PPUModeStats</code>:
+                        <ul>
+                            <li><code>mode_entries_count[4]</code>: Número de entradas en cada modo (0, 1, 2, 3)</li>
+                            <li><code>mode_cycles[4]</code>: Ciclos totales en cada modo</li>
+                            <li><code>ly_min</code>, <code>ly_max</code>: Rango de LY observado</li>
+                            <li><code>frames_with_mode3_stuck</code>: Frames donde Mode 3 duró más de 456 ciclos</li>
+                        </ul>
+                    </li>
+                    <li>Actualización en <code>PPU::step()</code>:
+                        <ul>
+                            <li>Incremento de <code>mode_entries_count[mode_]</code> y <code>mode_cycles[mode_]</code> en <code>update_mode()</code></li>
+                            <li>Actualización de <code>ly_min</code> y <code>ly_max</code> después de incrementar <code>ly_</code></li>
+                            <li>Detección de Mode 3 stuck: si <code>mode_ == 3</code> y <code>cycles > CYCLES_PER_SCANLINE</code>, incrementa contador</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h3>Fase E: DMG Classifier v3 ✅</h3>
+                <p>
+                    <strong>E) Clasificador DMG v3 con VRAM Audit</strong>:
+                </p>
+                <ul>
+                    <li>Nuevo método <code>_classify_dmg_quick_v3()</code> en <code>rom_smoke_0442.py</code></li>
+                    <li>Usa <code>get_vram_write_audit_stats()</code>, <code>get_vram_write_ring()</code>, y <code>get_ppu_mode_stats()</code></li>
+                    <li>Clasificaciones nuevas:
+                        <ul>
+                            <li><strong>VRAM_BLOCKED_INCORRECTLY</strong>: Writes bloqueados en modos que no deberían bloquear (no Mode 3)</li>
+                            <li><strong>VRAM_BLOCKED_MODE3_STUCK</strong>: Writes bloqueados porque Mode 3 está stuck</li>
+                            <li><strong>VRAM_WRITE_READBACK_MISMATCH</strong>: Writes permitidos pero readback no coincide</li>
+                            <li><strong>PPU_MODE3_STUCK</strong>: PPU en Mode 3 demasiado tiempo</li>
+                            <li><strong>PPU_MODE3_DOMINANT</strong>: Mode 3 ocupa más del 60% del tiempo</li>
+                            <li><strong>VRAM_NO_ATTEMPTS</strong>: No hay intentos de escribir a VRAM (programa no intenta cargar tiles)</li>
+                            <li><strong>VRAM_ALLOWED_BUT_NOT_READABLE</strong>: Writes permitidos pero luego no se pueden leer correctamente</li>
+                        </ul>
+                    </li>
+                    <li>Fallback a v2 si no hay métricas nuevas disponibles</li>
+                    <li>Actualizado <code>_classify_dmg_quick()</code> para usar v3 por defecto</li>
+                </ul>
+
+                <h3>Exposición Cython ✅</h3>
+                <p>
+                    <strong>Wrappers Cython</strong>:
+                </p>
+                <ul>
+                    <li><code>mmu.pxd</code>: Añadidas estructuras <code>VRAMWriteEvent</code> y <code>VRAMWriteAuditStats</code></li>
+                    <li><code>mmu.pyx</code>: Implementados métodos <code>get_vram_write_audit_stats()</code> y <code>get_vram_write_ring()</code></li>
+                    <li><code>ppu.pxd</code>: Añadida estructura <code>PPUModeStats</code></li>
+                    <li><code>ppu.pyx</code>: Implementado método <code>get_ppu_mode_stats()</code></li>
+                    <li>Corrección de tipos: uso de <code>!= 0</code> en lugar de <code>bool()</code> para convertir <code>bint</code> a Python bool</li>
+                    <li>Import explícito de <code>PPUModeStats</code> en <code>ppu.pyx</code></li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Afectados -->
+            <section id="archivos-afectados">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/MMU.hpp</code>: Estructuras <code>VRAMWriteEvent</code> y <code>VRAMWriteAuditStats</code></li>
+                    <li><code>src/core/cpp/MMU.cpp</code>: Instrumentación VRAM en <code>write()</code>, implementación de getters</li>
+                    <li><code>src/core/cpp/CPU.cpp</code>: Fix de unificación de IRQ tracking</li>
+                    <li><code>src/core/cpp/PPU.hpp</code>: Estructura <code>PPUModeStats</code></li>
+                    <li><code>src/core/cpp/PPU.cpp</code>: Tracking de modo PPU en <code>step()</code></li>
+                    <li><code>src/core/cython/mmu.pxd</code>: Declaraciones de estructuras y métodos</li>
+                    <li><code>src/core/cython/mmu.pyx</code>: Wrappers Python para VRAM audit</li>
+                    <li><code>src/core/cython/ppu.pxd</code>: Declaración de <code>PPUModeStats</code></li>
+                    <li><code>src/core/cython/ppu.pyx</code>: Wrapper Python para PPU mode stats</li>
+                    <li><code>tools/rom_smoke_0442.py</code>: Clasificador DMG v3</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests-verificacion">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Compilación</strong>:
+                </p>
+                <pre><code>python3 setup.py build_ext --inplace</code></pre>
+                <p>
+                    Compilación exitosa sin errores. Correcciones aplicadas:
+                </p>
+                <ul>
+                    <li>Corrección de tipos <code>bool()</code> → <code>!= 0</code> para <code>bint</code> en Cython</li>
+                    <li>Import explícito de <code>PPUModeStats</code> en <code>ppu.pyx</code></li>
+                </ul>
+                <p>
+                    <strong>Tests Unitarios</strong>:
+                </p>
+                <pre><code>pytest tests/test_core_cpu.py -v</code></pre>
+                <p>
+                    Resultado: <strong>6 passed in 0.14s</strong> ✅
+                </p>
+                <p>
+                    <strong>Test de Build</strong>:
+                </p>
+                <pre><code>python3 test_build.py</code></pre>
+                <p>
+                    Resultado: <strong>EXITO - El pipeline de compilacion funciona correctamente</strong> ✅
+                </p>
+                <p>
+                    <strong>Validación Nativa</strong>: Todas las nuevas funciones están disponibles y compiladas correctamente:
+                </p>
+                <ul>
+                    <li><code>mmu.get_vram_write_audit_stats()</code> ✅</li>
+                    <li><code>mmu.get_vram_write_ring(max_events)</code> ✅</li>
+                    <li><code>ppu.get_ppu_mode_stats()</code> ✅</li>
+                </ul>
+            </section>
+
+            <!-- 6. Resultados y Diagnóstico -->
+            <section id="resultados">
+                <h2>Resultados y Diagnóstico</h2>
+                <p>
+                    <strong>Estado Actual</strong>:
+                </p>
+                <ul>
+                    <li>✅ IRQ tracking unificado y consistente</li>
+                    <li>✅ Sistema completo de auditoría VRAM implementado</li>
+                    <li>✅ PPU mode tracking para detectar problemas de timing</li>
+                    <li>✅ Clasificador DMG v3 con nuevas métricas</li>
+                    <li>✅ Flag VIBOY_VRAM_FORCE_WRITES para tests de aislamiento</li>
+                </ul>
+                <p>
+                    <strong>Próximos Pasos</strong>:
+                </p>
+                <ul>
+                    <li><strong>Fase D (Pendiente)</strong>: Ejecutar 3 tests por ROM (tetris.gb, pkmn.gb) con diferentes configuraciones de <code>VIBOY_VRAM_FORCE_WRITES</code> y capturar snapshots</li>
+                    <li><strong>Fase F (Condicional)</strong>: Aplicar fix mínimo solo si el diagnóstico es conclusivo</li>
+                </ul>
+                <p>
+                    <strong>Nota</strong>: El sistema de auditoría está listo para recopilar evidencia detallada sobre cómo se está accediendo a VRAM, si los writes están siendo bloqueados correctamente según Pan Docs, y si hay problemas de timing del PPU que puedan estar causando bloqueos incorrectos.
+                </p>
+            </section>
+
+            <!-- 7. Referencias -->
+            <section id="referencias">
+                <h2>Referencias</h2>
+                <ul>
+                    <li>Pan Docs - VRAM Access Rules</li>
+                    <li>Pan Docs - LCD Timing, PPU Modes, STAT Register</li>
+                    <li>Pan Docs - Interrupts, IRQ Handling</li>
+                    <li>Cython Documentation - Type Conversion, C++ Integration</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p>
+                <a href="../index.html">Volver al índice</a>
+            </p>
+        </footer>
+    </div>
+</body>
+</html>

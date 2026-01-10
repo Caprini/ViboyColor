@@ -58,6 +58,14 @@ cdef extern from "PPU.hpp":
         uint32_t back_rgb_crc32
         uint32_t buffer_uid
     
+    # Step 0501: Estructura para estadísticas de modo PPU por frame
+    cdef struct PPUModeStats:
+        uint32_t mode_entries_count[4]  # Mode 0, 1, 2, 3
+        uint32_t mode_cycles[4]         # Ciclos totales en cada modo
+        uint8_t ly_min
+        uint8_t ly_max
+        uint32_t frames_with_mode3_stuck  # Si mode3 dura demasiado
+    
 cdef extern from "PPU.hpp":
     cdef cppclass PPU:
         # Constantes públicas
@@ -102,6 +110,7 @@ cdef extern from "PPU.hpp":
         void set_present_stats(uint32_t present_crc32, uint32_t present_nonwhite_count, uint32_t present_fmt, uint32_t present_pitch, uint32_t present_w, uint32_t present_h)  # Step 0489: Actualizar stats de presentación
         const DMGTileFetchStats& get_dmg_tile_fetch_stats() const  # Step 0489: Estadísticas de fetch de tiles DMG
         vector[BufferTraceEvent] get_buffer_trace_ring(size_t max_events) const  # Step 0498: Ring buffer de eventos BufferTrace
+        const PPUModeStats& get_ppu_mode_stats() const  # Step 0501: Estadísticas de modo PPU por frame
         void clear_framebuffer()
         void confirm_framebuffer_read()
         void convert_framebuffer_to_rgb()  # Step 0404: Conversión índices → RGB

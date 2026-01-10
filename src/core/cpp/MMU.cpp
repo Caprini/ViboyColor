@@ -179,7 +179,7 @@ MMU::MMU()
     , boot_logo_prefill_enabled_(false)  // Step 0475: Prefill del logo deshabilitado por defecto
     , waits_on_addr_(0x0000)  // Step 0479: I/O esperado (0 = no configurado)
     , cgb_palette_write_stats_()  // Step 0489: Inicializar estadísticas de writes a paletas CGB
-    , vram_write_stats_()  // Step 0490: Inicializar estadísticas de writes a VRAM
+    , vram_write_stats_()  // Step 0490: Inicializar estadísticas de writes a VRAM (Step 0501: incluye audit_stats_ y vram_write_ring_)
     , if_ie_tracking_()  // Step 0494: Inicializar tracking de IF/IE
     , hram_ffc5_tracking_()  // Step 0494: Inicializar tracking de HRAM[0xFFC5]
     , waits_on_reads_program_(0)  // Step 0479: Contador de reads desde programa
@@ -1370,10 +1370,19 @@ void MMU::write(uint16_t addr, uint8_t value) {
         last_ie_write_timestamp++;
         
         // --- Step 0494: Tracking de writes a IE ---
+        // Step 0500: Ampliado con historial de últimos 5 writes
         if_ie_tracking_.last_ie_write_pc = debug_current_pc;
         if_ie_tracking_.last_ie_write_value = value;
-        if_ie_tracking_.last_ie_applied_value = value & 0x1F;  // Máscara aplicada
+        uint8_t ie_applied_value = value & 0x1F;  // Máscara aplicada
+        if_ie_tracking_.last_ie_applied_value = ie_applied_value;
         if_ie_tracking_.ie_write_count++;
+        if_ie_tracking_.ie_current = ie_applied_value;
+        
+        // Añadir al historial de últimos 5 writes
+        size_t ie_idx = if_ie_tracking_.ie_write_history_head_ % IFIETracking::IE_WRITE_HISTORY_SIZE;
+        if_ie_tracking_.ie_write_history_[ie_idx].pc = debug_current_pc;
+        if_ie_tracking_.ie_write_history_[ie_idx].written = value;
+        if_ie_tracking_.ie_write_history_head_++;
         // -----------------------------------------
         
         // --- Step 0486: FF92 to IE Trace (gated por VIBOY_DEBUG_MARIO_FF92=1) ---
@@ -1442,10 +1451,20 @@ void MMU::write(uint16_t addr, uint8_t value) {
         }
         
         // --- Step 0494: Tracking de writes a IF ---
+        // Step 0500: Ampliado con historial de últimos 5 writes
         if_ie_tracking_.last_if_write_pc = debug_current_pc;
         if_ie_tracking_.last_if_write_value = value;
-        if_ie_tracking_.last_if_applied_value = value & 0x1F;  // Máscara aplicada
+        uint8_t applied_value = value & 0x1F;  // Máscara aplicada
+        if_ie_tracking_.last_if_applied_value = applied_value;
         if_ie_tracking_.if_write_count++;
+        if_ie_tracking_.if_current = applied_value;
+        
+        // Añadir al historial de últimos 5 writes
+        size_t if_idx = if_ie_tracking_.if_write_history_head_ % IFIETracking::IF_WRITE_HISTORY_SIZE;
+        if_ie_tracking_.if_write_history_[if_idx].pc = debug_current_pc;
+        if_ie_tracking_.if_write_history_[if_idx].written = value;
+        if_ie_tracking_.if_write_history_[if_idx].applied = applied_value;
+        if_ie_tracking_.if_write_history_head_++;
         // -----------------------------------------
         
         // Log gated (solo si VIBOY_DEBUG_IO=1 o VIBOY_DEBUG_IRQ=1)
@@ -3317,13 +3336,137 @@ void MMU::write(uint16_t addr, uint8_t value) {
         }
         // -----------------------------------------
         
-        uint16_t offset = addr - 0x8000;
-        if (vram_bank_ == 0) {
-            vram_bank0_[offset] = value;
-        } else {
-            vram_bank1_[offset] = value;
+        // --- Step 0501: VRAM Tiledata Write Audit (Fase B1) ---
+        // Instrumentación exhaustiva para diagnosticar bloqueos/descartes de writes a VRAM
+        {
+            // Obtener estado del PPU (modo, LY, LCDC)
+            uint8_t lcdc = memory_[0xFF40];
+            uint8_t lcd_on = (lcdc & 0x80) ? 1 : 0;
+            uint8_t stat_mode = 0;
+            uint8_t ly = 0;
+            
+            if (ppu_ != nullptr) {
+                stat_mode = ppu_->get_mode();
+                ly = ppu_->get_ly();
+            }
+            
+            // Determinar región
+            uint8_t region = (addr >= 0x8000 && addr <= 0x97FF) ? 1 : 2;  // 1=TILE_DATA, 2=TILE_MAP
+            
+            // Verificar si el write está permitido según Pan Docs:
+            // - VRAM solo es accesible durante HBlank (modo 0) y VBlank (LY >= 144 o modo 1)
+            // - Durante OAM Search (modo 2) y Pixel Transfer (modo 3), VRAM está bloqueado cuando LCD está ON
+            bool allowed = true;
+            uint8_t blocked_reason = 0;  // 0=OK, 1=LCD_ON_MODE3_BLOCK, 2=LCD_ON_MODE2_BLOCK, 3=LCD_OFF_ALLOWED, 4=OTHER
+            
+            if (lcd_on) {
+                if (stat_mode == 3) {  // Mode 3: Pixel Transfer
+                    allowed = false;
+                    blocked_reason = 1;  // LCD_ON_MODE3_BLOCK
+                } else if (stat_mode == 2) {  // Mode 2: OAM Search
+                    // IMPORTANTE: Mode 2 NO bloquea VRAM, solo OAM (según Pan Docs)
+                    allowed = true;
+                    blocked_reason = 0;  // OK
+                } else {  // Mode 0 (HBlank) o Mode 1 (VBlank)
+                    allowed = true;
+                    blocked_reason = 0;  // OK
+                }
+            } else {  // LCD OFF: acceso completo permitido
+                allowed = true;
+                blocked_reason = 3;  // LCD_OFF_ALLOWED
+            }
+            
+            // Verificar flag FORCE (VIBOY_VRAM_FORCE_WRITES=1) - Fase B2
+            bool forced = false;
+            const char* env_force = std::getenv("VIBOY_VRAM_FORCE_WRITES");
+            if (env_force && std::string(env_force) == "1") {
+                forced = true;
+                allowed = true;  // Forzar permitido
+            }
+            
+            // Actualizar contadores según región
+            if (region == 1) {  // TILE_DATA
+                vram_write_stats_.audit_stats_.tiledata_write_attempts++;
+                if (allowed || forced) {
+                    vram_write_stats_.audit_stats_.tiledata_write_allowed++;
+                } else {
+                    vram_write_stats_.audit_stats_.tiledata_write_blocked++;
+                    vram_write_stats_.audit_stats_.last_blocked_pc = debug_current_pc;
+                    vram_write_stats_.audit_stats_.last_blocked_addr = addr;
+                    vram_write_stats_.audit_stats_.last_blocked_reason = blocked_reason;
+                }
+            } else {  // TILE_MAP
+                vram_write_stats_.audit_stats_.tilemap_write_attempts++;
+                if (allowed || forced) {
+                    vram_write_stats_.audit_stats_.tilemap_write_allowed++;
+                } else {
+                    vram_write_stats_.audit_stats_.tilemap_write_blocked++;
+                }
+            }
+            
+            // Aplicar write si está permitido o forzado
+            if (allowed || forced) {
+                uint16_t offset = addr - 0x8000;
+                if (vram_bank_ == 0) {
+                    vram_bank0_[offset] = value;
+                } else {
+                    vram_bank1_[offset] = value;
+                }
+                
+                // Readback inmediatamente después del write
+                uint8_t readback_value = (vram_bank_ == 0) ? vram_bank0_[offset] : vram_bank1_[offset];
+                bool readback_matches = (readback_value == value);
+                
+                if (!readback_matches) {
+                    if (region == 1) {
+                        vram_write_stats_.audit_stats_.tiledata_write_readback_mismatch++;
+                    } else {
+                        vram_write_stats_.audit_stats_.tilemap_write_readback_mismatch++;
+                    }
+                }
+                
+                // Capturar evento en ring (tanto allowed como forced)
+                size_t idx = vram_write_stats_.vram_write_ring_head_ % VRAMWriteStats::VRAM_WRITE_RING_SIZE;
+                vram_write_stats_.vram_write_ring_[idx].frame_id = (ppu_ != nullptr) ? static_cast<uint32_t>(ppu_->get_frame_counter()) : 0;
+                vram_write_stats_.vram_write_ring_[idx].pc = debug_current_pc;
+                vram_write_stats_.vram_write_ring_[idx].addr = addr;
+                vram_write_stats_.vram_write_ring_[idx].value = value;
+                vram_write_stats_.vram_write_ring_[idx].region = region;
+                vram_write_stats_.vram_write_ring_[idx].lcdc = lcdc;
+                vram_write_stats_.vram_write_ring_[idx].lcd_on = lcd_on;
+                vram_write_stats_.vram_write_ring_[idx].stat_mode = stat_mode;
+                vram_write_stats_.vram_write_ring_[idx].ly = ly;
+                vram_write_stats_.vram_write_ring_[idx].allowed = true;  // allowed || forced
+                vram_write_stats_.vram_write_ring_[idx].blocked_reason = blocked_reason;
+                vram_write_stats_.vram_write_ring_[idx].readback_value = readback_value;
+                vram_write_stats_.vram_write_ring_[idx].readback_matches = readback_matches;
+                vram_write_stats_.vram_write_ring_[idx].forced = forced;
+                vram_write_stats_.vram_write_ring_head_++;
+            } else {
+                // Write bloqueado: capturar evento igualmente para análisis
+                size_t idx = vram_write_stats_.vram_write_ring_head_ % VRAMWriteStats::VRAM_WRITE_RING_SIZE;
+                vram_write_stats_.vram_write_ring_[idx].frame_id = (ppu_ != nullptr) ? static_cast<uint32_t>(ppu_->get_frame_counter()) : 0;
+                vram_write_stats_.vram_write_ring_[idx].pc = debug_current_pc;
+                vram_write_stats_.vram_write_ring_[idx].addr = addr;
+                vram_write_stats_.vram_write_ring_[idx].value = value;
+                vram_write_stats_.vram_write_ring_[idx].region = region;
+                vram_write_stats_.vram_write_ring_[idx].lcdc = lcdc;
+                vram_write_stats_.vram_write_ring_[idx].lcd_on = lcd_on;
+                vram_write_stats_.vram_write_ring_[idx].stat_mode = stat_mode;
+                vram_write_stats_.vram_write_ring_[idx].ly = ly;
+                vram_write_stats_.vram_write_ring_[idx].allowed = false;
+                vram_write_stats_.vram_write_ring_[idx].blocked_reason = blocked_reason;
+                vram_write_stats_.vram_write_ring_[idx].readback_value = 0xFF;  // No hay readback si está bloqueado
+                vram_write_stats_.vram_write_ring_[idx].readback_matches = false;
+                vram_write_stats_.vram_write_ring_[idx].forced = false;
+                vram_write_stats_.vram_write_ring_head_++;
+                // NO escribir a VRAM si está bloqueado
+                return;
+            }
         }
-        // No escribir en memory_[], VRAM ahora está en bancos separados
+        // -----------------------------------------
+        
+        // La escritura ya se hizo arriba si fue allowed/forced, así que solo retornamos
         return;
     }
     // -------------------------------------------
@@ -3436,14 +3579,36 @@ void MMU::write(uint16_t addr, uint8_t value) {
         // -----------------------------------------
         
         // --- Step 0494: Tracking de writes a HRAM[0xFFC5] ---
+        // Step 0500: Ampliado con write_count_in_irq_vblank y ring de últimos 8 writes
         if (addr == 0xFFC5) {
             hram_ffc5_tracking_.last_write_pc = debug_current_pc;
             hram_ffc5_tracking_.last_write_value = value;
-            hram_ffc5_tracking_.write_count++;
+            hram_ffc5_tracking_.write_count_total++;
+            hram_ffc5_tracking_.write_count = hram_ffc5_tracking_.write_count_total;  // Alias para compatibilidad
+            
+            // TODO Step 0500: Verificar si estamos en VBlank IRQ
+            // Por ahora, in_vblank_irq = false. Se puede añadir un flag o método más tarde.
+            bool in_vblank_irq = false;
+            // if (cpu_ != nullptr) {
+            //     // Verificar si CPU está en handler de VBlank (necesitar getter)
+            //     // ... implementar verificación ...
+            // }
+            
+            if (in_vblank_irq) {
+                hram_ffc5_tracking_.write_count_in_irq_vblank++;
+            }
             
             if (hram_ffc5_tracking_.first_write_frame == 0 && ppu_ != nullptr) {
                 hram_ffc5_tracking_.first_write_frame = static_cast<uint32_t>(ppu_->get_frame_counter());
             }
+            
+            // Añadir al ring de últimos 8 writes
+            size_t ring_idx = hram_ffc5_tracking_.write_ring_head_ % HRAMFFC5Tracking::FFC5_WRITE_RING_SIZE;
+            hram_ffc5_tracking_.write_ring_[ring_idx].pc = debug_current_pc;
+            hram_ffc5_tracking_.write_ring_[ring_idx].value = value;
+            hram_ffc5_tracking_.write_ring_[ring_idx].frame_id = (ppu_ != nullptr) ? ppu_->get_frame_counter() : 0;
+            hram_ffc5_tracking_.write_ring_[ring_idx].in_vblank_irq = in_vblank_irq;
+            hram_ffc5_tracking_.write_ring_head_++;
         }
         // -----------------------------------------
         
@@ -5230,6 +5395,36 @@ const CGBPaletteWriteStats& MMU::get_cgb_palette_write_stats() const {
 const VRAMWriteStats& MMU::get_vram_write_stats() const {
     return vram_write_stats_;
 }
+
+// --- Step 0501: Getters para VRAM Write Audit Stats ---
+const VRAMWriteAuditStats& MMU::get_vram_write_audit_stats() const {
+    return vram_write_stats_.audit_stats_;
+}
+
+std::vector<VRAMWriteEvent> MMU::get_vram_write_ring(size_t max_events) const {
+    std::vector<VRAMWriteEvent> result;
+    
+    if (max_events == 0 || vram_write_stats_.vram_write_ring_head_ == 0) {
+        return result;  // No hay eventos
+    }
+    
+    // Limitar max_events al tamaño del ring
+    size_t count = (max_events > VRAMWriteStats::VRAM_WRITE_RING_SIZE) ? 
+                   VRAMWriteStats::VRAM_WRITE_RING_SIZE : max_events;
+    
+    // Calcular índice inicial (más recientes primero)
+    size_t start_idx = (vram_write_stats_.vram_write_ring_head_ >= count) ? 
+                       (vram_write_stats_.vram_write_ring_head_ - count) : 0;
+    
+    // Extraer eventos del ring buffer (más recientes primero)
+    for (size_t i = 0; i < count && (start_idx + i) < vram_write_stats_.vram_write_ring_head_; i++) {
+        size_t idx = (start_idx + i) % VRAMWriteStats::VRAM_WRITE_RING_SIZE;
+        result.push_back(vram_write_stats_.vram_write_ring_[idx]);
+    }
+    
+    return result;
+}
+// --- Fin Step 0501 (VRAM Write Audit) ---
 
 // --- Step 0494: Getters para IF/IE y HRAM[0xFFC5] tracking ---
 const IFIETracking& MMU::get_if_ie_tracking() const {

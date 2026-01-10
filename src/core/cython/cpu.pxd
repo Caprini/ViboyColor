@@ -58,18 +58,33 @@ cdef extern from "CPU.hpp":
         uint8_t val
     
     # Step 0494: Declarar estructura IRQTraceEvent para acceso desde Cython
+    # Step 0500: Ampliada con campos adicionales
     cdef struct IRQTraceEvent:
         uint32_t frame
         uint16_t pc_before
+        uint16_t vector_addr
+        uint16_t pc_after
         uint16_t vector
         uint8_t ie
         uint8_t if_before
         uint8_t if_after
         uint8_t ime_before
+        uint8_t ime_after
+        uint8_t irq_type
+        uint8_t opcode_at_vector
         uint16_t sp_before
         uint16_t sp_after
         uint8_t pushed_pc_low
         uint8_t pushed_pc_high
+    
+    # Step 0500: Declarar estructura RETITraceEvent para acceso desde Cython
+    cdef struct RETITraceEvent:
+        uint32_t frame
+        uint16_t pc
+        uint16_t return_addr
+        uint8_t ime_after
+        uint16_t sp_before
+        uint16_t sp_after
     
     cdef cppclass CPU:
         # Constructor: recibe punteros a MMU y CoreRegisters
@@ -185,4 +200,7 @@ cdef extern from "CPU.hpp":
         # Step 0494: Interrupt taken counts e IRQ trace
         const uint32_t* get_interrupt_taken_counts() const
         vector[IRQTraceEvent] get_irq_trace_ring(size_t n) const
+        # Step 0500: RETI trace
+        vector[RETITraceEvent] get_reti_trace_ring(size_t n) const
+        uint32_t get_reti_count() const
 

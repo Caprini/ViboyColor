@@ -48,24 +48,48 @@ struct FF92IETraceEvent {
 
 /**
  * Step 0494: IRQ Trace Event
+ * Step 0500: Ampliado con vector_addr, pc_after, ime_after, irq_type, opcode_at_vector
  * 
  * Estructura para rastrear eventos de interrupciones tomadas en un ring-buffer.
  */
 struct IRQTraceEvent {
     uint32_t frame;
-    uint16_t pc_before;
-    uint16_t vector;
-    uint8_t ie;
-    uint8_t if_before;
-    uint8_t if_after;
-    uint8_t ime_before;
+    uint16_t pc_before;        // Donde estaba antes del take
+    uint16_t vector_addr;      // 0x0040, 0x0048, etc. (alias de vector para claridad)
+    uint16_t pc_after;         // PC justo tras saltar a vector (debe ser vector)
+    uint16_t vector;           // Alias de vector_addr (mantener compatibilidad)
+    uint8_t ie;                // IE en el instante del take
+    uint8_t if_before;         // IF antes del take
+    uint8_t if_after;          // IF después del take (con bit limpiado)
+    uint8_t ime_before;        // IME antes del take
+    uint8_t ime_after;         // IME después del take (debe ser 0)
+    uint8_t irq_type;          // VBlank/STAT/Timer/Serial/Joypad (0x01, 0x02, 0x04, 0x08, 0x10)
+    uint8_t opcode_at_vector;  // Opcional: opcode byte en vector_addr (detecta ROM mapping correcto)
     uint16_t sp_before;
     uint16_t sp_after;
     uint8_t pushed_pc_low;
     uint8_t pushed_pc_high;
     
-    IRQTraceEvent() : frame(0), pc_before(0xFFFF), vector(0), ie(0), if_before(0), if_after(0),
-                      ime_before(0), sp_before(0), sp_after(0), pushed_pc_low(0), pushed_pc_high(0) {}
+    IRQTraceEvent() : frame(0), pc_before(0xFFFF), vector_addr(0), pc_after(0), vector(0), 
+                      ie(0), if_before(0), if_after(0), ime_before(0), ime_after(0), 
+                      irq_type(0), opcode_at_vector(0), sp_before(0), sp_after(0), 
+                      pushed_pc_low(0), pushed_pc_high(0) {}
+};
+
+/**
+ * Step 0500: RETI Trace Event
+ * 
+ * Estructura para rastrear eventos de ejecución de RETI en un ring-buffer.
+ */
+struct RETITraceEvent {
+    uint32_t frame;
+    uint16_t pc;               // PC donde ocurrió RETI
+    uint16_t return_addr;      // Dirección de retorno (pop de la pila)
+    uint8_t ime_after;         // IME después de RETI (debe ser 1)
+    uint16_t sp_before;
+    uint16_t sp_after;
+    
+    RETITraceEvent() : frame(0), pc(0xFFFF), return_addr(0), ime_after(0), sp_before(0), sp_after(0) {}
 };
 
 /**
@@ -827,6 +851,12 @@ private:
     size_t irq_trace_ring_head_;
     uint32_t interrupt_taken_counts_[5];  // [VBlank, LCD-STAT, Timer, Serial, Joypad]
     
+    // --- Step 0500: RETI Trace Ring-Buffer ---
+    static constexpr size_t RETI_TRACE_RING_SIZE = 64;
+    RETITraceEvent reti_trace_ring_[RETI_TRACE_RING_SIZE];
+    size_t reti_trace_ring_head_;
+    uint32_t reti_count_;  // Contador total de RETI ejecutados
+    
     // ========== Estado de Triage (Step 0434) ==========
     // Instrumentación para entender por qué VRAM está vacía
     bool triage_active_;               // Flag para activar triage (limitado por frames)
@@ -1368,6 +1398,21 @@ public:
      * @return Vector de eventos IRQ (más recientes primero)
      */
     std::vector<IRQTraceEvent> get_irq_trace_ring(size_t n) const;
+    
+    /**
+     * Step 0500: Obtiene el ring-buffer de eventos RETI (últimos N eventos).
+     * 
+     * @param n Número de eventos a retornar (máximo RETI_TRACE_RING_SIZE)
+     * @return Vector de eventos RETI (más recientes primero)
+     */
+    std::vector<RETITraceEvent> get_reti_trace_ring(size_t n) const;
+    
+    /**
+     * Step 0500: Obtiene el contador total de RETI ejecutados.
+     * 
+     * @return Número total de veces que se ha ejecutado RETI
+     */
+    uint32_t get_reti_count() const;
 };
 
 #endif // CPU_HPP

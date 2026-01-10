@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0501 - DMG VRAM Tiledata Write Audit + Force-Writes A/B + IRQ Tracking Fix -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-10__0501__dmg-vram-tiledata-write-audit-force-writes-irq-tracking-fix.html" class="entry-link">
+                                    DMG VRAM Tiledata Write Audit + Force-Writes A/B + IRQ Tracking Fix
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-10 | 
+                            <strong>Step ID:</strong> 0501 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de sistema completo de auditoría de escrituras VRAM para diagnosticar por qué los juegos DMG no muestran contenido visual. Se añadió instrumentación exhaustiva en MMU::write() para VRAM (0x8000-0x9FFF) que captura estado PPU, razón de bloqueo, y verifica readback inmediato. Se implementó flag VIBOY_VRAM_FORCE_WRITES para tests de aislamiento. Se corrigió inconsistencia en IRQ tracking (irq_vblank_services_ e interrupt_taken_counts_[0] ahora se incrementan juntos). Se añadió tracking de modo PPU para detectar problemas de timing (mode3 stuck). Se implementó clasificador DMG v3 que usa estas nuevas métricas para diagnóstico más preciso.
+                        </p>
+                    </li>
                     <!-- Entrada 0500 - DMG VBlank Handler Proof + HRAM[0xFFC5] Semantics + Boot-Skip A/B Test -->
                     <li>
                         <div class="entry-header">

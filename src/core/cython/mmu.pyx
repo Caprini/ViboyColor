@@ -1421,19 +1421,134 @@ cdef class PyMMU:
             'tiledata_write_ring': ring_events,  # Últimos N eventos
         }
     
+    def get_vram_write_audit_stats(self):
+        """
+        Step 0501: Obtiene estadísticas agregadas de audit de writes a VRAM.
+        
+        Devuelve métricas detalladas sobre intentos, bloqueos, y readbacks de escrituras a VRAM.
+        
+        Returns:
+            dict con estadísticas de audit de writes a VRAM o None si no disponible.
+        """
+        if self._mmu == NULL:
+            return None
+        
+        cdef mmu.VRAMWriteAuditStats stats = self._mmu.get_vram_write_audit_stats()
+        
+        # Convertir blocked_reason a string legible
+        blocked_reason_map = {
+            0: "OK",
+            1: "LCD_ON_MODE3_BLOCK",
+            2: "LCD_ON_MODE2_BLOCK",
+            3: "LCD_OFF_ALLOWED",
+            4: "OTHER"
+        }
+        blocked_reason_str = blocked_reason_map.get(stats.last_blocked_reason, f"UNKNOWN({stats.last_blocked_reason})")
+        
+        return {
+            'tiledata_write_attempts': stats.tiledata_write_attempts,
+            'tiledata_write_allowed': stats.tiledata_write_allowed,
+            'tiledata_write_blocked': stats.tiledata_write_blocked,
+            'tiledata_write_readback_mismatch': stats.tiledata_write_readback_mismatch,
+            'tilemap_write_attempts': stats.tilemap_write_attempts,
+            'tilemap_write_allowed': stats.tilemap_write_allowed,
+            'tilemap_write_blocked': stats.tilemap_write_blocked,
+            'tilemap_write_readback_mismatch': stats.tilemap_write_readback_mismatch,
+            'last_blocked_pc': stats.last_blocked_pc,
+            'last_blocked_addr': stats.last_blocked_addr,
+            'last_blocked_reason': stats.last_blocked_reason,
+            'last_blocked_reason_str': blocked_reason_str,
+        }
+    
+    def get_vram_write_ring(self, size_t max_events=128):
+        """
+        Step 0501: Obtiene el ring buffer de eventos VRAM (últimos N eventos).
+        
+        Args:
+            max_events: Número máximo de eventos a retornar (default: 128)
+        
+        Returns:
+            Lista de dicts con eventos VRAM o lista vacía si no disponible.
+            Cada evento contiene: frame_id, pc, addr, value, region, lcdc, lcd_on,
+            stat_mode, ly, allowed, blocked_reason, readback_value, readback_matches, forced.
+        """
+        if self._mmu == NULL:
+            return []
+        
+        cdef vector[mmu.VRAMWriteEvent] events = self._mmu.get_vram_write_ring(max_events)
+        
+        # Convertir blocked_reason a string legible
+        blocked_reason_map = {
+            0: "OK",
+            1: "LCD_ON_MODE3_BLOCK",
+            2: "LCD_ON_MODE2_BLOCK",
+            3: "LCD_OFF_ALLOWED",
+            4: "OTHER"
+        }
+        
+        result = []
+        for i in range(events.size()):
+            event = events[i]
+            blocked_reason_str = blocked_reason_map.get(event.blocked_reason, f"UNKNOWN({event.blocked_reason})")
+            result.append({
+                'frame_id': event.frame_id,
+                'pc': event.pc,
+                'addr': event.addr,
+                'value': event.value,
+                'region': 'TILE_DATA' if event.region == 0 else 'TILE_MAP',
+                'lcdc': event.lcdc,
+                'lcd_on': event.lcd_on != 0,
+                'stat_mode': event.stat_mode,
+                'ly': event.ly,
+                'allowed': event.allowed != 0,
+                'blocked_reason': event.blocked_reason,
+                'blocked_reason_str': blocked_reason_str,
+                'readback_value': event.readback_value,
+                'readback_matches': event.readback_matches != 0,
+                'forced': event.forced != 0,
+            })
+        
+        return result
+    
     def get_if_ie_tracking(self):
         """
         Step 0494: Obtiene tracking de writes a IF/IE.
+        Step 0500: Ampliado con historial de últimos 5 writes y valores actuales.
         
         Returns:
             dict con tracking de writes a IF/IE o None si no disponible.
             Keys: 'last_if_write_pc', 'last_if_write_value', 'last_if_applied_value', 'if_write_count',
-                  'last_ie_write_pc', 'last_ie_write_value', 'last_ie_applied_value', 'ie_write_count'
+                  'last_ie_write_pc', 'last_ie_write_value', 'last_ie_applied_value', 'ie_write_count',
+                  'if_write_history' (últimos 5), 'ie_write_history' (últimos 5),
+                  'if_current', 'ie_current'
         """
         if self._mmu == NULL:
             return None
         
         cdef mmu.IFIETracking tracking = self._mmu.get_if_ie_tracking()
+        
+        # Extraer historial de IF (últimos 5 writes)
+        # Step 0500: Usar constante literal (5) en lugar de acceder a constante estática
+        cdef size_t IF_HISTORY_SIZE = 5
+        if_write_history = []
+        for i in range(min(IF_HISTORY_SIZE, tracking.if_write_history_head_)):
+            idx = (tracking.if_write_history_head_ - i - 1 + IF_HISTORY_SIZE) % IF_HISTORY_SIZE
+            if_write_history.append({
+                'pc': tracking.if_write_history_[idx].pc,
+                'written': tracking.if_write_history_[idx].written,
+                'applied': tracking.if_write_history_[idx].applied,
+            })
+        
+        # Extraer historial de IE (últimos 5 writes)
+        # Step 0500: Usar constante literal (5) en lugar de acceder a constante estática
+        cdef size_t IE_HISTORY_SIZE = 5
+        ie_write_history = []
+        for i in range(min(IE_HISTORY_SIZE, tracking.ie_write_history_head_)):
+            idx = (tracking.ie_write_history_head_ - i - 1 + IE_HISTORY_SIZE) % IE_HISTORY_SIZE
+            ie_write_history.append({
+                'pc': tracking.ie_write_history_[idx].pc,
+                'written': tracking.ie_write_history_[idx].written,
+            })
         
         return {
             'last_if_write_pc': tracking.last_if_write_pc,
@@ -1444,26 +1559,48 @@ cdef class PyMMU:
             'last_ie_write_value': tracking.last_ie_write_value,
             'last_ie_applied_value': tracking.last_ie_applied_value,
             'ie_write_count': tracking.ie_write_count,
+            'if_write_history': if_write_history,  # Step 0500
+            'ie_write_history': ie_write_history,  # Step 0500
+            'if_current': tracking.if_current,  # Step 0500
+            'ie_current': tracking.ie_current,  # Step 0500
         }
     
     def get_hram_ffc5_tracking(self):
         """
         Step 0494: Obtiene tracking de writes a HRAM[0xFFC5].
+        Step 0500: Ampliado con write_count_in_irq_vblank y ring de últimos 8 writes.
         
         Returns:
             dict con tracking de writes a HRAM[0xFFC5] o None si no disponible.
-            Keys: 'last_write_pc', 'last_write_value', 'write_count', 'first_write_frame'
+            Keys: 'last_write_pc', 'last_write_value', 'write_count_total', 'write_count_in_irq_vblank',
+                  'first_write_frame', 'write_ring' (últimos 8 writes)
         """
         if self._mmu == NULL:
             return None
         
         cdef mmu.HRAMFFC5Tracking tracking = self._mmu.get_hram_ffc5_tracking()
         
+        # Extraer ring de últimos 8 writes
+        # Step 0500: Usar constante literal (8) en lugar de acceder a constante estática
+        cdef size_t FFC5_RING_SIZE = 8
+        write_ring = []
+        for i in range(min(FFC5_RING_SIZE, tracking.write_ring_head_)):
+            idx = (tracking.write_ring_head_ - i - 1 + FFC5_RING_SIZE) % FFC5_RING_SIZE
+            write_ring.append({
+                'pc': tracking.write_ring_[idx].pc,
+                'value': tracking.write_ring_[idx].value,
+                'frame_id': tracking.write_ring_[idx].frame_id,
+                'in_vblank_irq': tracking.write_ring_[idx].in_vblank_irq,
+            })
+        
         return {
             'last_write_pc': tracking.last_write_pc,
             'last_write_value': tracking.last_write_value,
-            'write_count': tracking.write_count,
+            'write_count_total': tracking.write_count_total,  # Step 0500
+            'write_count': tracking.write_count,  # Alias para compatibilidad
+            'write_count_in_irq_vblank': tracking.write_count_in_irq_vblank,  # Step 0500
             'first_write_frame': tracking.first_write_frame,
+            'write_ring': write_ring,  # Step 0500: Últimos 8 writes
         }
     
     def get_io_watch_ff68_ff6b(self):

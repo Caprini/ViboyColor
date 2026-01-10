@@ -47,7 +47,9 @@ CPU::CPU(MMU* mmu, CoreRegisters* registers)
       mario_loop_ly_watch_(), mario_loop_start_(0x128C), mario_loop_end_(0x1290),  // Step 0485: Mario Loop LY Watch
       branch_0x1290_corr_(),  // Step 0485: Branch 0x1290 Correlation
       triage_active_(false), triage_frame_limit_(0), triage_last_pc_(0xFFFF), triage_pc_sample_count_(0),  // Step 0434
-      irq_trace_ring_head_(0) {  // Step 0494: IRQ trace ring head
+      irq_trace_ring_head_(0),  // Step 0494: IRQ trace ring head
+      reti_trace_ring_head_(0),  // Step 0500: RETI trace ring head
+      reti_count_(0) {  // Step 0500: Contador total de RETI
     // Step 0436: Pokemon micro trace ya está inicializado por su constructor por defecto
     // Step 0494: Inicializar interrupt_taken_counts_ y irq_trace_ring_
     for (int i = 0; i < 5; i++) {
@@ -55,6 +57,10 @@ CPU::CPU(MMU* mmu, CoreRegisters* registers)
     }
     for (size_t i = 0; i < IRQ_TRACE_RING_SIZE; i++) {
         irq_trace_ring_[i] = IRQTraceEvent();
+    }
+    // Step 0500: Inicializar reti_trace_ring_
+    for (size_t i = 0; i < RETI_TRACE_RING_SIZE; i++) {
+        reti_trace_ring_[i] = RETITraceEvent();
     }
     // Step 0436: Pokemon micro trace ya está inicializado por su constructor por defecto
     // Validación básica (en producción, podríamos usar assert)
@@ -3092,6 +3098,7 @@ int CPU::step() {
                 // --- Step 0387: Trazado de RETI pop ---
                 static int reti_pop_log = 0;
                 uint16_t sp_before_pop = regs_->sp;
+                uint16_t original_pc = regs_->pc;  // Step 0500: Guardar PC antes del RETI
                 uint8_t byte_low = 0xFF;
                 uint8_t byte_high = 0xFF;
                 
@@ -3106,6 +3113,20 @@ int CPU::step() {
                 // -------------------------------------------
                 
                 uint16_t return_addr = pop_word();
+                
+                // --- Step 0500: Tracking de RETI ---
+                reti_count_++;
+                
+                size_t reti_idx = reti_trace_ring_head_ % RETI_TRACE_RING_SIZE;
+                reti_trace_ring_[reti_idx].frame = (ppu_ != nullptr) ? ppu_->get_frame_counter() : 0;
+                reti_trace_ring_[reti_idx].pc = original_pc;
+                reti_trace_ring_[reti_idx].return_addr = return_addr;
+                reti_trace_ring_[reti_idx].ime_after = 1;  // IME se reactiva con RETI
+                reti_trace_ring_[reti_idx].sp_before = sp_before_pop;
+                reti_trace_ring_[reti_idx].sp_after = regs_->sp;
+                
+                reti_trace_ring_head_++;
+                // -------------------------------------------
                 
                 // --- Step 0387: Verificar return_addr después del pop ---
                 if (reti_pop_log < 30) {
@@ -3984,26 +4005,19 @@ uint8_t CPU::handle_interrupts() {
         if (pending & 0x01) {
             interrupt_bit = 0x01;
             vector = 0x0040;  // V-Blank
-            irq_vblank_services_++;  // Step 0400
-            if (first_vblank_service_frame_ == 0 && ppu_ != nullptr) {
-                first_vblank_service_frame_ = ppu_->get_frame_counter();
-            }
+            // Step 0501: NO incrementar aquí, se incrementará más tarde junto con interrupt_taken_counts_
         } else if (pending & 0x02) {
             interrupt_bit = 0x02;
             vector = 0x0048;  // LCD STAT
-            irq_stat_services_++;  // Step 0400
         } else if (pending & 0x04) {
             interrupt_bit = 0x04;
             vector = 0x0050;  // Timer
-            irq_timer_services_++;  // Step 0400
         } else if (pending & 0x08) {
             interrupt_bit = 0x08;
             vector = 0x0058;  // Serial
-            irq_serial_services_++;  // Step 0400
         } else if (pending & 0x10) {
             interrupt_bit = 0x10;
             vector = 0x0060;  // Joypad
-            irq_joypad_services_++;  // Step 0400
         }
         
         // --- Step 0384: Instrumentar servicio de interrupción ---
@@ -4056,28 +4070,54 @@ uint8_t CPU::handle_interrupts() {
         // Guardar PC en la pila (dirección de retorno)
         push_word(prev_pc);
         
-        // --- Step 0494: Contador real de interrupt taken ---
+        // --- Step 0501: Contador real de interrupt taken (unificado con contadores antiguos) ---
+        // CRÍTICO: Ambos contadores deben incrementarse en el mismo punto exacto
         if (vector == 0x0040) {
-            interrupt_taken_counts_[0]++;  // VBlank
+            interrupt_taken_counts_[0]++;  // Contador nuevo (VBlank)
+            irq_vblank_services_++;  // Contador antiguo (Step 0400) - Step 0501: movido aquí para consistencia
+            if (first_vblank_service_frame_ == 0 && ppu_ != nullptr) {
+                first_vblank_service_frame_ = ppu_->get_frame_counter();
+            }
+            
+            // Verificar desincronización (solo primera vez)
+            static bool desync_logged = false;
+            if (!desync_logged && irq_vblank_services_ != interrupt_taken_counts_[0]) {
+                printf("[IRQ-TRACK-BUG] Desincronización detectada: VBlankServ=%u != IRQTaken=%u\n",
+                       irq_vblank_services_, interrupt_taken_counts_[0]);
+                desync_logged = true;
+            }
         } else if (vector == 0x0048) {
             interrupt_taken_counts_[1]++;  // LCD-STAT
+            irq_stat_services_++;  // Step 0400
         } else if (vector == 0x0050) {
             interrupt_taken_counts_[2]++;  // Timer
+            irq_timer_services_++;  // Step 0400
         } else if (vector == 0x0058) {
             interrupt_taken_counts_[3]++;  // Serial
+            irq_serial_services_++;  // Step 0400
         } else if (vector == 0x0060) {
             interrupt_taken_counts_[4]++;  // Joypad
+            irq_joypad_services_++;  // Step 0400
         }
         
         // --- Step 0494: Añadir evento al ring-buffer ---
+        // Step 0500: Ampliado con campos adicionales
         size_t idx = irq_trace_ring_head_ % IRQ_TRACE_RING_SIZE;
         irq_trace_ring_[idx].frame = (ppu_ != nullptr) ? ppu_->get_frame_counter() : 0;
         irq_trace_ring_[idx].pc_before = prev_pc;
-        irq_trace_ring_[idx].vector = vector;
+        irq_trace_ring_[idx].vector_addr = vector;
+        irq_trace_ring_[idx].vector = vector;  // Alias para compatibilidad
+        irq_trace_ring_[idx].pc_after = vector;  // PC justo tras saltar (debe ser vector)
         irq_trace_ring_[idx].ie = ie_reg;
         irq_trace_ring_[idx].if_before = if_before_clear;
         irq_trace_ring_[idx].if_after = new_if;
         irq_trace_ring_[idx].ime_before = 1;  // IME estaba activo
+        irq_trace_ring_[idx].ime_after = 0;   // IME desactivado tras take
+        irq_trace_ring_[idx].irq_type = interrupt_bit;  // 0x01=VBlank, 0x02=STAT, etc.
+        
+        // Opcional: leer opcode en vector_addr para detectar ROM mapping correcto
+        irq_trace_ring_[idx].opcode_at_vector = mmu_->read(vector);
+        
         irq_trace_ring_[idx].sp_before = sp_before_push;
         irq_trace_ring_[idx].sp_after = regs_->sp;
         
@@ -4745,6 +4785,31 @@ std::vector<IRQTraceEvent> CPU::get_irq_trace_ring(size_t n) const {
     return result;
 }
 // --- Fin Step 0494 ---
+
+// --- Step 0500: Implementación de getters para RETI ---
+std::vector<RETITraceEvent> CPU::get_reti_trace_ring(size_t n) const {
+    std::vector<RETITraceEvent> result;
+    if (n == 0 || reti_trace_ring_head_ == 0) {
+        return result;
+    }
+    
+    size_t count = (n > RETI_TRACE_RING_SIZE) ? RETI_TRACE_RING_SIZE : n;
+    size_t start_idx = (reti_trace_ring_head_ >= count) ? (reti_trace_ring_head_ - count) : 0;
+    
+    for (size_t i = 0; i < count && (start_idx + i) < reti_trace_ring_head_; i++) {
+        size_t idx = (start_idx + i) % RETI_TRACE_RING_SIZE;
+        result.push_back(reti_trace_ring_[idx]);
+    }
+    
+    // Invertir para que los más recientes estén primero
+    std::reverse(result.begin(), result.end());
+    return result;
+}
+
+uint32_t CPU::get_reti_count() const {
+    return reti_count_;
+}
+// --- Fin Step 0500 (RETI) ---
 
 // --- Step 0472: Implementación de getters para STOP ---
 uint32_t CPU::get_stop_executed_count() const {

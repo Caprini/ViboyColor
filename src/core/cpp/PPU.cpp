@@ -39,6 +39,7 @@ PPU::PPU(MMU* mmu)
     , framebuffer_stats_()  // Step 0488: Inicializar estadísticas del framebuffer
     , three_buffer_stats_()  // Step 0489: Inicializar estadísticas de tres buffers
     , dmg_tile_fetch_stats_()  // Step 0489: Inicializar estadísticas de fetch de tiles DMG
+    , ppu_mode_stats_()  // Step 0501: Inicializar estadísticas de modo PPU (ly_min=255, ly_max=0)
     , buffer_trace_ring_head_(0)  // Step 0498: Inicializar ring buffer de BufferTrace
 #ifdef VIBOY_DEBUG_PPU
     , bg_pixels_written_count_(0)              // Step 0458: Inicializar contador de píxeles BG
@@ -76,6 +77,16 @@ PPU::PPU(MMU* mmu)
     // y permite que ROMs que dependen del boot funcionen correctamente.
     //
     // Fuente: Pan Docs - "Power Up Sequence", "Boot ROM"
+    
+    // --- Step 0501: Inicializar estadísticas de modo PPU ---
+    ppu_mode_stats_.ly_min = 255;  // Empezar alto para que cualquier LY sea menor
+    ppu_mode_stats_.ly_max = 0;    // Empezar bajo para que cualquier LY sea mayor
+    for (int i = 0; i < 4; i++) {
+        ppu_mode_stats_.mode_entries_count[i] = 0;
+        ppu_mode_stats_.mode_cycles[i] = 0;
+    }
+    ppu_mode_stats_.frames_with_mode3_stuck = 0;
+    // -----------------------------------------
 }
 
 PPU::~PPU() {
@@ -436,6 +447,26 @@ void PPU::step(int cpu_cycles) {
     // Actualizar el modo PPU según el punto actual en la línea
     // Esto debe hacerse ANTES de procesar líneas completas
     update_mode();
+    
+    // --- Step 0501: Actualizar estadísticas de modo PPU (Fase C) ---
+    // Actualizar ciclos acumulados en el modo actual
+    if (mode_ >= 0 && mode_ < 4) {
+        ppu_mode_stats_.mode_cycles[mode_] += cpu_cycles;
+    }
+    
+    // Actualizar LY min/max
+    if (ly_ < ppu_mode_stats_.ly_min) {
+        ppu_mode_stats_.ly_min = ly_;
+    }
+    if (ly_ > ppu_mode_stats_.ly_max) {
+        ppu_mode_stats_.ly_max = ly_;
+    }
+    
+    // Detectar mode3 stuck (dura más de una línea completa) - solo si estamos en mode3
+    if (mode_ == 3 && cpu_cycles > CYCLES_PER_SCANLINE) {
+        ppu_mode_stats_.frames_with_mode3_stuck++;
+    }
+    // -----------------------------------------
     
     // Mientras tengamos suficientes ciclos para completar una línea (456 T-Cycles)
     // --- Step 0438 T4: Debug de bucle ---
@@ -1058,6 +1089,9 @@ void PPU::step(int cpu_cycles) {
 }
 
 void PPU::update_mode() {
+    // Guardar modo anterior para detectar cambios
+    uint8_t old_mode = mode_;
+    
     // Si estamos en V-Blank (líneas 144-153), siempre Mode 1
     if (ly_ >= VBLANK_START) {
         mode_ = MODE_1_VBLANK;
@@ -1078,6 +1112,13 @@ void PPU::update_mode() {
             mode_ = MODE_0_HBLANK;
         }
     }
+    
+    // --- Step 0501: Actualizar estadísticas de modo PPU (Fase C) ---
+    // Si el modo cambió, incrementar contador de entradas
+    if (old_mode != mode_ && mode_ >= 0 && mode_ < 4) {
+        ppu_mode_stats_.mode_entries_count[mode_]++;
+    }
+    // -----------------------------------------
 }
 
 void PPU::check_stat_interrupt() {
@@ -6086,6 +6127,10 @@ void PPU::compute_three_buffer_stats() {
 
 const ThreeBufferStats& PPU::get_three_buffer_stats() const {
     return three_buffer_stats_;
+}
+
+const PPUModeStats& PPU::get_ppu_mode_stats() const {
+    return ppu_mode_stats_;
 }
 
 void PPU::set_present_stats(uint32_t present_crc32, uint32_t present_nonwhite_count,

@@ -845,6 +845,7 @@ cdef class PyCPU:
     def get_irq_trace_ring(self, size_t n=10):
         """
         Step 0494: Obtiene ring-buffer de eventos IRQ (últimos N eventos).
+        Step 0500: Ampliado con campos adicionales (vector_addr, pc_after, ime_after, irq_type, opcode_at_vector).
         
         Args:
             n: Número de eventos a retornar (máximo 64)
@@ -861,18 +862,60 @@ cdef class PyCPU:
             result.append({
                 'frame': event.frame,
                 'pc_before': event.pc_before,
-                'vector': event.vector,
+                'vector_addr': event.vector_addr,  # Step 0500
+                'pc_after': event.pc_after,  # Step 0500
+                'vector': event.vector,  # Alias para compatibilidad
                 'ie': event.ie,
                 'if_before': event.if_before,
                 'if_after': event.if_after,
                 'ime_before': event.ime_before,
+                'ime_after': event.ime_after,  # Step 0500
+                'irq_type': event.irq_type,  # Step 0500
+                'opcode_at_vector': event.opcode_at_vector,  # Step 0500
                 'sp_before': event.sp_before,
                 'sp_after': event.sp_after,
                 'pushed_pc_low': event.pushed_pc_low,
                 'pushed_pc_high': event.pushed_pc_high,
             })
         return result
-    # --- Fin Step 0494 ---
+    
+    def get_reti_trace_ring(self, size_t n=10):
+        """
+        Step 0500: Obtiene ring-buffer de eventos RETI (últimos N eventos).
+        
+        Args:
+            n: Número de eventos a retornar (máximo 64)
+        
+        Returns:
+            Lista de diccionarios con los eventos RETI (más recientes primero)
+        """
+        if self._cpu == NULL:
+            return []
+        
+        cdef vector[cpu.RETITraceEvent] trace = self._cpu.get_reti_trace_ring(n)
+        result = []
+        for event in trace:
+            result.append({
+                'frame': event.frame,
+                'pc': event.pc,
+                'return_addr': event.return_addr,
+                'ime_after': event.ime_after,
+                'sp_before': event.sp_before,
+                'sp_after': event.sp_after,
+            })
+        return result
+    
+    def get_reti_count(self):
+        """
+        Step 0500: Obtiene el contador total de RETI ejecutados.
+        
+        Returns:
+            Número total de veces que se ha ejecutado RETI
+        """
+        if self._cpu == NULL:
+            return 0
+        return self._cpu.get_reti_count()
+    # --- Fin Step 0494/0500 ---
     
     # --- Fin Step 0475 ---
     

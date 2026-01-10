@@ -108,6 +108,37 @@ cdef extern from "MMU.hpp":
     # Step 0490: Estructura VRAMWriteStats (definida fuera de la clase MMU)
     # Step 0491: Ampliada para separar attempts vs nonzero writes + bank + VBK
     # Step 0492: Ampliada con tracking de Clear VRAM
+    # Step 0501: Estructura VRAMWriteEvent para audit detallado
+    cdef struct VRAMWriteEvent:
+        uint32_t frame_id
+        uint16_t pc
+        uint16_t addr
+        uint8_t value
+        uint8_t region
+        uint8_t lcdc
+        uint8_t lcd_on
+        uint8_t stat_mode
+        uint8_t ly
+        bint allowed
+        uint8_t blocked_reason
+        uint8_t readback_value
+        bint readback_matches
+        bint forced
+    
+    # Step 0501: Estructura VRAMWriteAuditStats para estadísticas agregadas
+    cdef struct VRAMWriteAuditStats:
+        uint32_t tiledata_write_attempts
+        uint32_t tiledata_write_allowed
+        uint32_t tiledata_write_blocked
+        uint32_t tiledata_write_readback_mismatch
+        uint32_t tilemap_write_attempts
+        uint32_t tilemap_write_allowed
+        uint32_t tilemap_write_blocked
+        uint32_t tilemap_write_readback_mismatch
+        uint16_t last_blocked_pc
+        uint16_t last_blocked_addr
+        uint8_t last_blocked_reason
+    
     cdef struct TiledataWriteEvent:
         uint32_t frame
         uint16_t pc
@@ -288,6 +319,10 @@ cdef extern from "MMU.hpp":
         CGBPaletteWriteStats get_cgb_palette_write_stats() const
         # Step 0490: VRAM Write Stats
         VRAMWriteStats get_vram_write_stats() const
+        # Step 0501: VRAM Write Audit Stats
+        VRAMWriteAuditStats get_vram_write_audit_stats() const
+        # Step 0501: VRAM Write Ring Buffer
+        vector[VRAMWriteEvent] get_vram_write_ring(size_t max_events) const
         # Step 0494: IF/IE y HRAM[0xFFC5] Tracking
         IFIETracking get_if_ie_tracking() const
         HRAMFFC5Tracking get_hram_ffc5_tracking() const

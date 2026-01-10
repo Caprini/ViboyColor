@@ -14,7 +14,7 @@ from libcpp.vector cimport vector
 # Importar la definición de la clase C++ desde el archivo .pxd
 cimport ppu
 cimport mmu
-from ppu cimport FrameBufferStats, ThreeBufferStats, DMGTileFetchStats, BufferTraceEvent
+from ppu cimport FrameBufferStats, ThreeBufferStats, DMGTileFetchStats, BufferTraceEvent, PPUModeStats
 
 # NOTA: PyMMU está definido en mmu.pyx, que está incluido en native_core.pyx
 # El atributo _mmu es accesible directamente desde otros módulos Cython
@@ -664,4 +664,31 @@ cdef class PyPPU:
             })
         
         return result
+    
+    def get_ppu_mode_stats(self):
+        """
+        Step 0501: Obtiene estadísticas de modo PPU por frame.
+        
+        Devuelve métricas sobre transiciones de modo, ciclos por modo, y detección
+        de problemas de timing (mode3 stuck).
+        
+        Returns:
+            dict con estadísticas de modo PPU o None si no disponible.
+            Keys: 'mode_entries_count' (lista de 4 elementos), 'mode_cycles' (lista de 4 elementos),
+                  'ly_min', 'ly_max', 'frames_with_mode3_stuck'
+        """
+        if self._ppu == NULL:
+            return None
+        
+        cdef const PPUModeStats* stats = &self._ppu.get_ppu_mode_stats()
+        if stats == NULL:
+            return None
+        
+        return {
+            'mode_entries_count': [stats.mode_entries_count[i] for i in range(4)],
+            'mode_cycles': [stats.mode_cycles[i] for i in range(4)],
+            'ly_min': stats.ly_min,
+            'ly_max': stats.ly_max,
+            'frames_with_mode3_stuck': stats.frames_with_mode3_stuck,
+        }
 
