@@ -179,9 +179,10 @@ MMU::MMU()
     , boot_logo_prefill_enabled_(false)  // Step 0475: Prefill del logo deshabilitado por defecto
     , waits_on_addr_(0x0000)  // Step 0479: I/O esperado (0 = no configurado)
     , cgb_palette_write_stats_()  // Step 0489: Inicializar estadísticas de writes a paletas CGB
-    , vram_write_stats_()  // Step 0490: Inicializar estadísticas de writes a VRAM (Step 0501: incluye audit_stats_ y vram_write_ring_)
+    , vram_write_stats_()  // Step 0490: Inicializar estadísticas de writes a VRAM (Step 0501: incluye audit_stats_ y vram_write_ring_, Step 0502: incluye first/last nonzero tracking)
     , if_ie_tracking_()  // Step 0494: Inicializar tracking de IF/IE
     , hram_ffc5_tracking_()  // Step 0494: Inicializar tracking de HRAM[0xFFC5]
+    , mmu_read_ring_head_(0)  // Step 0502: Inicializar ring buffer de reads para correlación source-read
     , waits_on_reads_program_(0)  // Step 0479: Contador de reads desde programa
     , last_waits_on_read_value_(0x00)  // Step 0479: Último valor leído del I/O esperado
     , last_waits_on_read_pc_(0x0000)  // Step 0479: Último PC que leyó el I/O esperado
@@ -782,8 +783,33 @@ uint8_t MMU::read(uint16_t addr) const {
         if (addr < 0x4000) {
             size_t rom_addr = static_cast<size_t>(bank0_rom_) * 0x4000 + addr;
             if (rom_addr < rom_data_.size()) {
-                return rom_data_[rom_addr];
+                uint8_t val = rom_data_[rom_addr];
+                
+                // --- Step 0502: Capturar ROM0 read en ring buffer ---
+                size_t read_idx = mmu_read_ring_head_ % MMU_READ_RING_SIZE;
+                mmu_read_ring_[read_idx].frame_id = (ppu_ != nullptr) ? static_cast<uint32_t>(ppu_->get_frame_counter()) : 0;
+                mmu_read_ring_[read_idx].pc = debug_current_pc;
+                mmu_read_ring_[read_idx].addr = addr;
+                mmu_read_ring_[read_idx].value = val;
+                mmu_read_ring_[read_idx].region = 0;  // ROM0
+                mmu_read_ring_[read_idx].type = 0;    // normal
+                mmu_read_ring_head_++;
+                // -----------------------------------------
+                
+                return val;
             }
+            
+            // --- Step 0502: Capturar ROM0 read fallido (0xFF) ---
+            size_t read_idx = mmu_read_ring_head_ % MMU_READ_RING_SIZE;
+            mmu_read_ring_[read_idx].frame_id = (ppu_ != nullptr) ? static_cast<uint32_t>(ppu_->get_frame_counter()) : 0;
+            mmu_read_ring_[read_idx].pc = debug_current_pc;
+            mmu_read_ring_[read_idx].addr = addr;
+            mmu_read_ring_[read_idx].value = 0xFF;
+            mmu_read_ring_[read_idx].region = 0;  // ROM0
+            mmu_read_ring_[read_idx].type = 0;    // normal
+            mmu_read_ring_head_++;
+            // -----------------------------------------
+            
             return 0xFF;
         } else if (addr < 0x8000) {
             size_t rom_addr = static_cast<size_t>(bankN_rom_) * 0x4000 + (addr - 0x4000);
@@ -811,8 +837,31 @@ uint8_t MMU::read(uint16_t addr) const {
                     }
                 }
                 
+                // --- Step 0502: Capturar ROMX read en ring buffer ---
+                size_t read_idx = mmu_read_ring_head_ % MMU_READ_RING_SIZE;
+                mmu_read_ring_[read_idx].frame_id = (ppu_ != nullptr) ? static_cast<uint32_t>(ppu_->get_frame_counter()) : 0;
+                mmu_read_ring_[read_idx].pc = debug_current_pc;
+                mmu_read_ring_[read_idx].addr = addr;
+                mmu_read_ring_[read_idx].value = val;
+                mmu_read_ring_[read_idx].region = 1;  // ROMX
+                mmu_read_ring_[read_idx].type = 0;    // normal
+                mmu_read_ring_head_++;
+                // -----------------------------------------
+                
                 return val;
             }
+            
+            // --- Step 0502: Capturar ROMX read fallido (0xFF) ---
+            size_t read_idx = mmu_read_ring_head_ % MMU_READ_RING_SIZE;
+            mmu_read_ring_[read_idx].frame_id = (ppu_ != nullptr) ? static_cast<uint32_t>(ppu_->get_frame_counter()) : 0;
+            mmu_read_ring_[read_idx].pc = debug_current_pc;
+            mmu_read_ring_[read_idx].addr = addr;
+            mmu_read_ring_[read_idx].value = 0xFF;
+            mmu_read_ring_[read_idx].region = 1;  // ROMX
+            mmu_read_ring_[read_idx].type = 0;    // normal
+            mmu_read_ring_head_++;
+            // -----------------------------------------
+            
             return 0xFF;
         }
     }
@@ -832,6 +881,18 @@ uint8_t MMU::read(uint16_t addr) const {
                    addr, vram_value, debug_current_pc, current_rom_bank_, vram_bank_);
             vram_read_count++;
         }
+        
+        // --- Step 0502: Capturar VRAM read en ring buffer ---
+        size_t read_idx = mmu_read_ring_head_ % MMU_READ_RING_SIZE;
+        mmu_read_ring_[read_idx].frame_id = (ppu_ != nullptr) ? static_cast<uint32_t>(ppu_->get_frame_counter()) : 0;
+        mmu_read_ring_[read_idx].pc = debug_current_pc;
+        mmu_read_ring_[read_idx].addr = addr;
+        mmu_read_ring_[read_idx].value = vram_value;
+        mmu_read_ring_[read_idx].region = 5;  // VRAM
+        mmu_read_ring_[read_idx].type = 0;    // normal
+        mmu_read_ring_head_++;
+        // -----------------------------------------
+        
         return vram_value;
     }
     
@@ -1159,8 +1220,43 @@ uint8_t MMU::read(uint16_t addr) const {
     }
     // -----------------------------------------
     
+    // --- Step 0502: MMU Read Ring para correlación source-read ---
+    // Capturar reads de WRAM/HRAM/memoria general en el ring buffer
+    // (ROM y VRAM ya se capturaron arriba donde retornan temprano)
+    // Solo capturar casos que no retornaron antes (WRAM, HRAM, otros IO)
+    uint8_t value_to_return = memory_[addr];
+    uint8_t region = 2;  // Por defecto WRAM
+    uint8_t type = 0;    // 0=normal, 1=IO
+    
+    // Determinar región solo para casos que no retornaron arriba
+    if (addr >= 0xC000 && addr <= 0xDFFF) {
+        region = 2;  // WRAM
+    } else if (addr >= 0xFF80 && addr <= 0xFFFE) {
+        region = 3;  // HRAM
+    } else if (addr >= 0xFF00 && addr <= 0xFFFF) {
+        region = 4;  // IO
+        type = 1;    // IO
+        // NOTA: IO especiales (STAT, DIV, P1, etc.) ya retornaron arriba,
+        // así que este código solo captura otros IO que no tienen return temprano
+        // Para esos casos, usamos memory_[addr] como valor
+    } else {
+        // Otra memoria (Echo RAM mapeada, etc.) - raro pero posible
+        region = 2;  // Tratar como WRAM genérico
+    }
+    
+    // Capturar evento en ring (solo para casos que llegaron aquí, no los que retornaron antes)
+    size_t read_idx = mmu_read_ring_head_ % MMU_READ_RING_SIZE;
+    mmu_read_ring_[read_idx].frame_id = (ppu_ != nullptr) ? static_cast<uint32_t>(ppu_->get_frame_counter()) : 0;
+    mmu_read_ring_[read_idx].pc = debug_current_pc;
+    mmu_read_ring_[read_idx].addr = addr;
+    mmu_read_ring_[read_idx].value = value_to_return;
+    mmu_read_ring_[read_idx].region = region;
+    mmu_read_ring_[read_idx].type = type;
+    mmu_read_ring_head_++;
+    // -----------------------------------------
+    
     // Resto de direcciones: memoria plana
-    return memory_[addr];
+    return value_to_return;
 }
 
 void MMU::write(uint16_t addr, uint8_t value) {
@@ -3425,9 +3521,99 @@ void MMU::write(uint16_t addr, uint8_t value) {
                     }
                 }
                 
-                // Capturar evento en ring (tanto allowed como forced)
+                // --- Step 0502: Contar contenido escrito (cero vs no-cero) ---
+                if (region == 1) {  // TILE_DATA
+                    if (value == 0x00) {
+                        vram_write_stats_.audit_stats_.tiledata_writes_zero_count++;
+                    } else {
+                        vram_write_stats_.audit_stats_.tiledata_writes_nonzero_count++;
+                        
+                        // Registrar primer write no-cero
+                        if (!vram_write_stats_.first_nonzero_tiledata_write.found) {
+                            uint32_t current_frame = (ppu_ != nullptr) ? static_cast<uint32_t>(ppu_->get_frame_counter()) : 0;
+                            vram_write_stats_.first_nonzero_tiledata_write.found = true;
+                            vram_write_stats_.first_nonzero_tiledata_write.frame_id = current_frame;
+                            vram_write_stats_.first_nonzero_tiledata_write.pc = debug_current_pc;
+                            vram_write_stats_.first_nonzero_tiledata_write.addr = addr;
+                            vram_write_stats_.first_nonzero_tiledata_write.value = value;
+                            vram_write_stats_.first_nonzero_tiledata_write.stat_mode = stat_mode;
+                            vram_write_stats_.first_nonzero_tiledata_write.ly = ly;
+                            vram_write_stats_.first_nonzero_tiledata_write.lcdc = lcdc;
+                        }
+                        
+                        // Actualizar último write no-cero
+                        uint32_t current_frame = (ppu_ != nullptr) ? static_cast<uint32_t>(ppu_->get_frame_counter()) : 0;
+                        vram_write_stats_.last_nonzero_tiledata_write.found = true;
+                        vram_write_stats_.last_nonzero_tiledata_write.frame_id = current_frame;
+                        vram_write_stats_.last_nonzero_tiledata_write.pc = debug_current_pc;
+                        vram_write_stats_.last_nonzero_tiledata_write.addr = addr;
+                        vram_write_stats_.last_nonzero_tiledata_write.value = value;
+                        vram_write_stats_.last_nonzero_tiledata_write.stat_mode = stat_mode;
+                        vram_write_stats_.last_nonzero_tiledata_write.ly = ly;
+                        vram_write_stats_.last_nonzero_tiledata_write.lcdc = lcdc;
+                        
+                        // Añadir a muestra de valores únicos (hasta 8)
+                        if (vram_write_stats_.nonzero_unique_values_count < 8) {
+                            bool already_in_sample = false;
+                            for (size_t i = 0; i < vram_write_stats_.nonzero_unique_values_count; i++) {
+                                if (vram_write_stats_.nonzero_unique_values_sample[i] == value) {
+                                    already_in_sample = true;
+                                    break;
+                                }
+                            }
+                            if (!already_in_sample) {
+                                vram_write_stats_.nonzero_unique_values_sample[vram_write_stats_.nonzero_unique_values_count++] = value;
+                            }
+                        }
+                    }
+                    
+                    if (value == 0xFF) {
+                        vram_write_stats_.audit_stats_.tiledata_writes_ff_count++;
+                    }
+                } else {  // TILE_MAP
+                    if (value == 0x00) {
+                        vram_write_stats_.audit_stats_.tilemap_writes_zero_count++;
+                    } else {
+                        vram_write_stats_.audit_stats_.tilemap_writes_nonzero_count++;
+                    }
+                    if (value == 0xFF) {
+                        vram_write_stats_.audit_stats_.tilemap_writes_ff_count++;
+                    }
+                }
+                
+                // --- Step 0502: Correlación con source read (heurística) ---
+                bool src_found = false;
+                uint16_t src_addr_guess = 0;
+                uint8_t src_value_guess = 0;
+                uint8_t src_region_guess = 0;
+                
+                // Buscar en los últimos 3 reads del ring
+                for (int i = 1; i <= 3 && i <= static_cast<int>(mmu_read_ring_head_); i++) {
+                    size_t read_idx = (mmu_read_ring_head_ - i) % MMU_READ_RING_SIZE;
+                    
+                    // Verificar si el read tiene el mismo PC (correlación directa)
+                    // o si es un read "reciente" (últimos 3 reads)
+                    if (mmu_read_ring_[read_idx].pc == debug_current_pc || i <= 3) {
+                        src_addr_guess = mmu_read_ring_[read_idx].addr;
+                        src_value_guess = mmu_read_ring_[read_idx].value;
+                        src_region_guess = mmu_read_ring_[read_idx].region;
+                        src_found = true;
+                        break;  // Usar el más reciente que coincida
+                    }
+                }
+                
+                // Determinar si es "interesante" para el ring interesante
+                bool is_interesting = false;
+                if (region == 1) {  // TILE_DATA
+                    if (value != 0x00 || !allowed || forced) {
+                        is_interesting = true;
+                    }
+                }
+                
+                // Capturar evento en ring general (tanto allowed como forced)
                 size_t idx = vram_write_stats_.vram_write_ring_head_ % VRAMWriteStats::VRAM_WRITE_RING_SIZE;
-                vram_write_stats_.vram_write_ring_[idx].frame_id = (ppu_ != nullptr) ? static_cast<uint32_t>(ppu_->get_frame_counter()) : 0;
+                uint32_t current_frame = (ppu_ != nullptr) ? static_cast<uint32_t>(ppu_->get_frame_counter()) : 0;
+                vram_write_stats_.vram_write_ring_[idx].frame_id = current_frame;
                 vram_write_stats_.vram_write_ring_[idx].pc = debug_current_pc;
                 vram_write_stats_.vram_write_ring_[idx].addr = addr;
                 vram_write_stats_.vram_write_ring_[idx].value = value;
@@ -3441,11 +3627,44 @@ void MMU::write(uint16_t addr, uint8_t value) {
                 vram_write_stats_.vram_write_ring_[idx].readback_value = readback_value;
                 vram_write_stats_.vram_write_ring_[idx].readback_matches = readback_matches;
                 vram_write_stats_.vram_write_ring_[idx].forced = forced;
+                vram_write_stats_.vram_write_ring_[idx].src_addr_guess = src_addr_guess;
+                vram_write_stats_.vram_write_ring_[idx].src_value_guess = src_value_guess;
+                vram_write_stats_.vram_write_ring_[idx].src_region_guess = src_region_guess;
+                vram_write_stats_.vram_write_ring_[idx].src_correlation_valid = src_found;
                 vram_write_stats_.vram_write_ring_head_++;
+                
+                // Capturar en ring "interesante" si aplica
+                if (is_interesting && region == 1) {
+                    size_t interesting_idx = vram_write_stats_.vram_write_interesting_ring_head_ % VRAMWriteStats::VRAM_WRITE_INTERESTING_RING_SIZE;
+                    vram_write_stats_.vram_write_interesting_ring_[interesting_idx] = vram_write_stats_.vram_write_ring_[idx];
+                    vram_write_stats_.vram_write_interesting_ring_head_++;
+                }
             } else {
+                // --- Step 0502: Correlación con source read para writes bloqueados también ---
+                bool src_found = false;
+                uint16_t src_addr_guess = 0;
+                uint8_t src_value_guess = 0;
+                uint8_t src_region_guess = 0;
+                
+                // Buscar en los últimos 3 reads del ring
+                for (int i = 1; i <= 3 && i <= static_cast<int>(mmu_read_ring_head_); i++) {
+                    size_t read_idx = (mmu_read_ring_head_ - i) % MMU_READ_RING_SIZE;
+                    
+                    // Verificar si el read tiene el mismo PC (correlación directa)
+                    // o si es un read "reciente" (últimos 3 reads)
+                    if (mmu_read_ring_[read_idx].pc == debug_current_pc || i <= 3) {
+                        src_addr_guess = mmu_read_ring_[read_idx].addr;
+                        src_value_guess = mmu_read_ring_[read_idx].value;
+                        src_region_guess = mmu_read_ring_[read_idx].region;
+                        src_found = true;
+                        break;  // Usar el más reciente que coincida
+                    }
+                }
+                
                 // Write bloqueado: capturar evento igualmente para análisis
                 size_t idx = vram_write_stats_.vram_write_ring_head_ % VRAMWriteStats::VRAM_WRITE_RING_SIZE;
-                vram_write_stats_.vram_write_ring_[idx].frame_id = (ppu_ != nullptr) ? static_cast<uint32_t>(ppu_->get_frame_counter()) : 0;
+                uint32_t current_frame = (ppu_ != nullptr) ? static_cast<uint32_t>(ppu_->get_frame_counter()) : 0;
+                vram_write_stats_.vram_write_ring_[idx].frame_id = current_frame;
                 vram_write_stats_.vram_write_ring_[idx].pc = debug_current_pc;
                 vram_write_stats_.vram_write_ring_[idx].addr = addr;
                 vram_write_stats_.vram_write_ring_[idx].value = value;
@@ -3459,6 +3678,10 @@ void MMU::write(uint16_t addr, uint8_t value) {
                 vram_write_stats_.vram_write_ring_[idx].readback_value = 0xFF;  // No hay readback si está bloqueado
                 vram_write_stats_.vram_write_ring_[idx].readback_matches = false;
                 vram_write_stats_.vram_write_ring_[idx].forced = false;
+                vram_write_stats_.vram_write_ring_[idx].src_addr_guess = src_addr_guess;
+                vram_write_stats_.vram_write_ring_[idx].src_value_guess = src_value_guess;
+                vram_write_stats_.vram_write_ring_[idx].src_region_guess = src_region_guess;
+                vram_write_stats_.vram_write_ring_[idx].src_correlation_valid = src_found;
                 vram_write_stats_.vram_write_ring_head_++;
                 // NO escribir a VRAM si está bloqueado
                 return;

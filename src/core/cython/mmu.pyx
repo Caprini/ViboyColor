@@ -1370,21 +1370,23 @@ cdef class PyMMU:
         cdef mmu.VRAMWriteStats stats = self._mmu.get_vram_write_stats()
         
         # Extraer ring buffer (últimos N eventos)
-        cdef uint32_t start = 0
-        cdef uint32_t ring_size = 128  # TILEDATA_WRITE_RING_SIZE
-        cdef uint32_t i, idx
+        # NOTA: Acceso temporalmente deshabilitado debido a problemas de compilación con arrays de estructuras en Cython
+        # TODO Step 0502: Arreglar acceso a tiledata_write_ring_ cuando se resuelva el problema de tipos
         ring_events = []
-        if stats.tiledata_write_ring_active_:
-            if stats.tiledata_write_ring_head_ > ring_size:
-                start = stats.tiledata_write_ring_head_ - ring_size
-            for i in range(start, stats.tiledata_write_ring_head_):
-                idx = i % ring_size
-                ring_events.append({
-                    'frame': stats.tiledata_write_ring_[idx].frame,
-                    'pc': stats.tiledata_write_ring_[idx].pc,
-                    'addr': stats.tiledata_write_ring_[idx].addr,
-                    'val': stats.tiledata_write_ring_[idx].val,
-                })
+        # if stats.tiledata_write_ring_active_:
+        #     cdef uint32_t start = 0
+        #     cdef uint32_t ring_size = 128  # TILEDATA_WRITE_RING_SIZE
+        #     cdef uint32_t i, idx
+        #     if stats.tiledata_write_ring_head_ > ring_size:
+        #         start = stats.tiledata_write_ring_head_ - ring_size
+        #     for i in range(start, stats.tiledata_write_ring_head_):
+        #         idx = i % ring_size
+        #         ring_events.append({
+        #             'frame': stats.tiledata_write_ring_[idx].frame,
+        #             'pc': stats.tiledata_write_ring_[idx].pc,
+        #             'addr': stats.tiledata_write_ring_[idx].addr,
+        #             'val': stats.tiledata_write_ring_[idx].val,
+        #         })
         
         return {
             'tiledata_attempts_bank0': stats.tiledata_attempts_bank0,
@@ -1458,6 +1460,77 @@ cdef class PyMMU:
             'last_blocked_addr': stats.last_blocked_addr,
             'last_blocked_reason': stats.last_blocked_reason,
             'last_blocked_reason_str': blocked_reason_str,
+            # Step 0502: Contadores de contenido escrito (cero vs no-cero)
+            'tiledata_writes_zero_count': stats.tiledata_writes_zero_count,
+            'tiledata_writes_nonzero_count': stats.tiledata_writes_nonzero_count,
+            'tiledata_writes_ff_count': stats.tiledata_writes_ff_count,
+            'tilemap_writes_zero_count': stats.tilemap_writes_zero_count,
+            'tilemap_writes_nonzero_count': stats.tilemap_writes_nonzero_count,
+            'tilemap_writes_ff_count': stats.tilemap_writes_ff_count,
+        }
+    
+    def get_vram_write_stats_v2(self):
+        """
+        Step 0502: Obtiene estadísticas v2 de writes a VRAM (con distinción cero/no-cero).
+        
+        Incluye tracking del primer/last nonzero write y muestra de valores únicos.
+        
+        Returns:
+            dict con estadísticas v2 de writes a VRAM o None si no disponible.
+        """
+        if self._mmu == NULL:
+            return None
+        
+        cdef mmu.VRAMWriteStats stats = self._mmu.get_vram_write_stats()
+        cdef mmu.VRAMWriteAuditStats audit_stats = stats.audit_stats_
+        
+        # Extraer primer nonzero write
+        first_nonzero = None
+        if stats.first_nonzero_tiledata_write.found:
+            first_nonzero = {
+                'frame_id': stats.first_nonzero_tiledata_write.frame_id,
+                'pc': stats.first_nonzero_tiledata_write.pc,
+                'addr': stats.first_nonzero_tiledata_write.addr,
+                'value': stats.first_nonzero_tiledata_write.value,
+                'stat_mode': stats.first_nonzero_tiledata_write.stat_mode,
+                'ly': stats.first_nonzero_tiledata_write.ly,
+                'lcdc': stats.first_nonzero_tiledata_write.lcdc,
+            }
+        
+        # Extraer last nonzero write
+        last_nonzero = None
+        if stats.last_nonzero_tiledata_write.found:
+            last_nonzero = {
+                'frame_id': stats.last_nonzero_tiledata_write.frame_id,
+                'pc': stats.last_nonzero_tiledata_write.pc,
+                'addr': stats.last_nonzero_tiledata_write.addr,
+                'value': stats.last_nonzero_tiledata_write.value,
+                'stat_mode': stats.last_nonzero_tiledata_write.stat_mode,
+                'ly': stats.last_nonzero_tiledata_write.ly,
+                'lcdc': stats.last_nonzero_tiledata_write.lcdc,
+            }
+        
+        # Extraer muestra de valores únicos
+        nonzero_sample = []
+        for i in range(stats.nonzero_unique_values_count):
+            nonzero_sample.append(stats.nonzero_unique_values_sample[i])
+        
+        return {
+            'tiledata_write_attempts': audit_stats.tiledata_write_attempts,
+            'tiledata_write_allowed': audit_stats.tiledata_write_allowed,
+            'tiledata_write_blocked': audit_stats.tiledata_write_blocked,
+            'tiledata_writes_zero_count': audit_stats.tiledata_writes_zero_count,
+            'tiledata_writes_nonzero_count': audit_stats.tiledata_writes_nonzero_count,
+            'tiledata_writes_ff_count': audit_stats.tiledata_writes_ff_count,
+            'first_nonzero_tiledata_write': first_nonzero,
+            'last_nonzero_tiledata_write': last_nonzero,
+            'nonzero_unique_values_sample': nonzero_sample,
+            'tilemap_write_attempts': audit_stats.tilemap_write_attempts,
+            'tilemap_write_allowed': audit_stats.tilemap_write_allowed,
+            'tilemap_write_blocked': audit_stats.tilemap_write_blocked,
+            'tilemap_writes_zero_count': audit_stats.tilemap_writes_zero_count,
+            'tilemap_writes_nonzero_count': audit_stats.tilemap_writes_nonzero_count,
+            'tilemap_writes_ff_count': audit_stats.tilemap_writes_ff_count,
         }
     
     def get_vram_write_ring(self, size_t max_events=128):
@@ -1490,12 +1563,23 @@ cdef class PyMMU:
         for i in range(events.size()):
             event = events[i]
             blocked_reason_str = blocked_reason_map.get(event.blocked_reason, f"UNKNOWN({event.blocked_reason})")
+            # Convertir src_region_guess a string legible
+            region_map = {
+                0: 'ROM0',
+                1: 'ROMX',
+                2: 'WRAM',
+                3: 'HRAM',
+                4: 'IO',
+                5: 'VRAM',
+            }
+            src_region_str = region_map.get(event.src_region_guess, f'UNKNOWN({event.src_region_guess})')
+            
             result.append({
                 'frame_id': event.frame_id,
                 'pc': event.pc,
                 'addr': event.addr,
                 'value': event.value,
-                'region': 'TILE_DATA' if event.region == 0 else 'TILE_MAP',
+                'region': 'TILE_DATA' if event.region == 1 else 'TILE_MAP',  # region 1=TILE_DATA, 2=TILE_MAP
                 'lcdc': event.lcdc,
                 'lcd_on': event.lcd_on != 0,
                 'stat_mode': event.stat_mode,
@@ -1506,6 +1590,12 @@ cdef class PyMMU:
                 'readback_value': event.readback_value,
                 'readback_matches': event.readback_matches != 0,
                 'forced': event.forced != 0,
+                # Step 0502: Correlación source-read
+                'src_addr_guess': event.src_addr_guess,
+                'src_value_guess': event.src_value_guess,
+                'src_region_guess': event.src_region_guess,
+                'src_region_str': src_region_str,
+                'src_correlation_valid': event.src_correlation_valid != 0,
             })
         
         return result

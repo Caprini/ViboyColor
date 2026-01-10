@@ -109,6 +109,7 @@ cdef extern from "MMU.hpp":
     # Step 0491: Ampliada para separar attempts vs nonzero writes + bank + VBK
     # Step 0492: Ampliada con tracking de Clear VRAM
     # Step 0501: Estructura VRAMWriteEvent para audit detallado
+    # Step 0502: Ampliada con correlación source-read
     cdef struct VRAMWriteEvent:
         uint32_t frame_id
         uint16_t pc
@@ -124,8 +125,23 @@ cdef extern from "MMU.hpp":
         uint8_t readback_value
         bint readback_matches
         bint forced
+        # Step 0502: Correlación source-read
+        uint16_t src_addr_guess
+        uint8_t src_value_guess
+        uint8_t src_region_guess
+        bint src_correlation_valid
+    
+    # Step 0502: Estructura MMUReadEvent para correlación source-read
+    cdef struct MMUReadEvent:
+        uint32_t frame_id
+        uint16_t pc
+        uint16_t addr
+        uint8_t value
+        uint8_t region
+        uint8_t type
     
     # Step 0501: Estructura VRAMWriteAuditStats para estadísticas agregadas
+    # Step 0502: Ampliada con contadores de contenido escrito (cero vs no-cero)
     cdef struct VRAMWriteAuditStats:
         uint32_t tiledata_write_attempts
         uint32_t tiledata_write_allowed
@@ -138,12 +154,40 @@ cdef extern from "MMU.hpp":
         uint16_t last_blocked_pc
         uint16_t last_blocked_addr
         uint8_t last_blocked_reason
+        # Step 0502: Contadores de contenido escrito
+        uint32_t tiledata_writes_zero_count
+        uint32_t tiledata_writes_nonzero_count
+        uint32_t tiledata_writes_ff_count
+        uint32_t tilemap_writes_zero_count
+        uint32_t tilemap_writes_nonzero_count
+        uint32_t tilemap_writes_ff_count
     
     cdef struct TiledataWriteEvent:
         uint32_t frame
         uint16_t pc
         uint16_t addr
         uint8_t val
+    
+    # Step 0502: Estructuras para tracking de primer/last nonzero write
+    cdef struct FirstNonzeroWrite:
+        bint found
+        uint32_t frame_id
+        uint16_t pc
+        uint16_t addr
+        uint8_t value
+        uint8_t stat_mode
+        uint8_t ly
+        uint8_t lcdc
+    
+    cdef struct LastNonzeroWrite:
+        bint found
+        uint32_t frame_id
+        uint16_t pc
+        uint16_t addr
+        uint8_t value
+        uint8_t stat_mode
+        uint8_t ly
+        uint8_t lcdc
     
     cdef struct VRAMWriteStats:
         # Tiledata (0x8000-0x97FF)
@@ -184,6 +228,19 @@ cdef extern from "MMU.hpp":
         TiledataWriteEvent tiledata_write_ring_[128]  # TILEDATA_WRITE_RING_SIZE = 128 (con guion bajo para coincidir con C++)
         uint32_t tiledata_write_ring_head_  # Con guion bajo para coincidir con C++
         bint tiledata_write_ring_active_  # Con guion bajo para coincidir con C++
+        # Step 0501: VRAM Write Audit Stats
+        VRAMWriteAuditStats audit_stats_
+        # Step 0501: Ring buffer de eventos VRAM
+        VRAMWriteEvent vram_write_ring_[128]  # VRAM_WRITE_RING_SIZE = 128
+        size_t vram_write_ring_head_
+        # Step 0502: Primer/Last nonzero write tracking
+        FirstNonzeroWrite first_nonzero_tiledata_write
+        LastNonzeroWrite last_nonzero_tiledata_write
+        uint8_t nonzero_unique_values_sample[8]
+        size_t nonzero_unique_values_count
+        # Step 0502: Ring buffer de eventos "interesantes"
+        VRAMWriteEvent vram_write_interesting_ring_[64]  # VRAM_WRITE_INTERESTING_RING_SIZE = 64
+        size_t vram_write_interesting_ring_head_
     
     cdef cppclass MMU:
         MMU() except +

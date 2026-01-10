@@ -204,6 +204,7 @@ struct IOWatchFF68FF6B {
 
 /**
  * Step 0501: Estructura para eventos de write a VRAM (audit detallado).
+ * Step 0502: Ampliada con correlación source-read.
  * 
  * Captura información completa de cada intento de write a VRAM para diagnóstico.
  */
@@ -222,10 +223,32 @@ struct VRAMWriteEvent {
     uint8_t readback_value;   // Valor leído inmediatamente después del write
     bool readback_matches;    // Si readback coincide con value escrito
     bool forced;              // Si el write fue forzado (VIBOY_VRAM_FORCE_WRITES=1)
+    
+    // --- Step 0502: Correlación con source read (heurística) ---
+    uint16_t src_addr_guess;      // Dirección source estimada (del último read)
+    uint8_t src_value_guess;       // Valor source estimado (del último read)
+    uint8_t src_region_guess;      // Región source estimada (ROM0/ROMX/WRAM/HRAM/IO)
+    bool src_correlation_valid;    // Si la correlación es válida (últimos 1-3 reads)
+};
+
+/**
+ * Step 0502: Estructura para eventos de read desde MMU (correlación source-read).
+ * 
+ * Permite rastrear las lecturas de memoria para correlacionarlas con writes a VRAM
+ * y determinar si la CPU está copiando ceros desde ROM/RAM.
+ */
+struct MMUReadEvent {
+    uint32_t frame_id;  // Frame ID (o contador)
+    uint16_t pc;        // PC donde se leyó
+    uint16_t addr;      // Dirección leída
+    uint8_t value;      // Valor leído
+    uint8_t region;     // ROM0 (0x0000-0x3FFF) / ROMX (0x4000-0x7FFF) / WRAM (0xC000-0xDFFF) / HRAM (0xFF80-0xFFFE) / IO (0xFF00-0xFFFF) / VRAM (0x8000-0x9FFF)
+    uint8_t type;       // 0=normal, 1=IO
 };
 
 /**
  * Step 0501: Estructura para estadísticas agregadas de writes a VRAM.
+ * Step 0502: Ampliada con contadores de contenido escrito (cero vs no-cero).
  */
 struct VRAMWriteAuditStats {
     // Contadores agregados
@@ -243,6 +266,15 @@ struct VRAMWriteAuditStats {
     uint16_t last_blocked_pc;
     uint16_t last_blocked_addr;
     uint8_t last_blocked_reason;
+    
+    // --- Step 0502: Contadores de contenido escrito (cero vs no-cero) ---
+    uint32_t tiledata_writes_zero_count;
+    uint32_t tiledata_writes_nonzero_count;
+    uint32_t tiledata_writes_ff_count;  // Opcional: por si es 0xFF
+    
+    uint32_t tilemap_writes_zero_count;
+    uint32_t tilemap_writes_nonzero_count;
+    uint32_t tilemap_writes_ff_count;
 };
 
 /**
@@ -314,6 +346,38 @@ struct VRAMWriteStats {
     static constexpr size_t VRAM_WRITE_RING_SIZE = 128;
     VRAMWriteEvent vram_write_ring_[VRAM_WRITE_RING_SIZE];
     size_t vram_write_ring_head_;
+    
+    // --- Step 0502: Primer/Last nonzero write tracking ---
+    struct FirstNonzeroWrite {
+        bool found;
+        uint32_t frame_id;
+        uint16_t pc;
+        uint16_t addr;
+        uint8_t value;
+        uint8_t stat_mode;
+        uint8_t ly;
+        uint8_t lcdc;
+    } first_nonzero_tiledata_write;
+    
+    struct LastNonzeroWrite {
+        bool found;
+        uint32_t frame_id;
+        uint16_t pc;
+        uint16_t addr;
+        uint8_t value;
+        uint8_t stat_mode;
+        uint8_t ly;
+        uint8_t lcdc;
+    } last_nonzero_tiledata_write;
+    
+    // Muestra de valores únicos no-cero (hasta 8 valores)
+    uint8_t nonzero_unique_values_sample[8];
+    size_t nonzero_unique_values_count;
+    
+    // --- Step 0502: Ring buffer de eventos "interesantes" (64 eventos) ---
+    static constexpr size_t VRAM_WRITE_INTERESTING_RING_SIZE = 64;
+    VRAMWriteEvent vram_write_interesting_ring_[VRAM_WRITE_INTERESTING_RING_SIZE];
+    size_t vram_write_interesting_ring_head_;
 };
 
 /**
@@ -1326,6 +1390,11 @@ private:
     mutable IFIETracking if_ie_tracking_;
     mutable HRAMFFC5Tracking hram_ffc5_tracking_;
     mutable IOWatchFF68FF6B io_watch_ff68_ff6b_;  // Step 0495: Tracking de writes/reads a FF68-FF6B
+    
+    // --- Step 0502: MMU Read Ring para correlación source-read ---
+    static constexpr size_t MMU_READ_RING_SIZE = 256;
+    mutable MMUReadEvent mmu_read_ring_[MMU_READ_RING_SIZE];
+    mutable size_t mmu_read_ring_head_;
     
     // --- Step 0486: Contadores JOYP por source y selección ---
     mutable uint32_t joyp_reads_prog_buttons_sel_;   // Program reads con buttons selected (bit4=0)

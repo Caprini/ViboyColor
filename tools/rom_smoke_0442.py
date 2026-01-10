@@ -737,7 +737,9 @@ class ROMSmokeRunner:
     def __init__(self, rom_path: str, max_frames: int = 300, 
                  dump_every: int = 0, dump_png: bool = False,
                  max_seconds: int = 120, stop_early_on_first_nonzero: bool = False,
-                 use_renderer_headless: bool = False, use_renderer_windowed: bool = False):
+                 use_renderer_headless: bool = False, use_renderer_windowed: bool = False,
+                 stop_on_first_tiledata_nonzero: bool = False,
+                 stop_on_first_tiledata_nonzero_write: bool = False):
         """
         Inicializa el runner.
         
@@ -750,6 +752,8 @@ class ROMSmokeRunner:
             stop_early_on_first_nonzero: Si True, parar cuando tiledata_first_nonzero_frame exista
             use_renderer_headless: Si True, usar renderer headless para capturar FB_PRESENT_SRC (Step 0497)
             use_renderer_windowed: Si True, usar renderer windowed (para testing event pumping) (Step 0499)
+            stop_on_first_tiledata_nonzero: Step 0502: Parar cuando se detecte primer tiledata no-cero en VRAM
+            stop_on_first_tiledata_nonzero_write: Step 0502: Parar cuando se detecte primer write no-cero a tiledata
         """
         self.rom_path = Path(rom_path)
         self.max_frames = max_frames
@@ -759,6 +763,8 @@ class ROMSmokeRunner:
         self.stop_early_on_first_nonzero = stop_early_on_first_nonzero
         self.use_renderer_headless = use_renderer_headless
         self.use_renderer_windowed = use_renderer_windowed
+        self.stop_on_first_tiledata_nonzero = stop_on_first_tiledata_nonzero
+        self.stop_on_first_tiledata_nonzero_write = stop_on_first_tiledata_nonzero_write
         self._renderer = None
         
         # Step 0499: Si windowed, forzar SDL_VIDEODRIVER normal (no dummy)
@@ -1902,18 +1908,28 @@ class ROMSmokeRunner:
             metrics = self._collect_metrics(frame_idx, ly_first, ly_mid, ly_last, stat_first, stat_mid, stat_last)
             self.metrics.append(metrics)
             
-            # --- Step 0492: Stop early si tiledata_first_nonzero_frame existe ---
-            if self.stop_early_on_first_nonzero:
+            # --- Step 0502: Run until evidence (parada automática) ---
+            # Verificar condición de parada: primer nonzero write
+            if hasattr(self, 'stop_on_first_tiledata_nonzero_write') and self.stop_on_first_tiledata_nonzero_write:
+                vram_stats_v2 = self.mmu.get_vram_write_stats_v2()
+                if vram_stats_v2 and vram_stats_v2.get('first_nonzero_tiledata_write'):
+                    first_nonzero = vram_stats_v2['first_nonzero_tiledata_write']
+                    print(f"[STOP-EARLY] Primer write no-cero detectado en frame {first_nonzero['frame_id']}: PC=0x{first_nonzero['pc']:04X}, addr=0x{first_nonzero['addr']:04X}, value=0x{first_nonzero['value']:02X}")
+                    break  # Parar ejecución
+            
+            # Verificar condición de parada: primer nonzero en VRAM (readback)
+            if hasattr(self, 'stop_on_first_tiledata_nonzero') and self.stop_on_first_tiledata_nonzero:
+                vram_stats_v2 = self.mmu.get_vram_write_stats_v2() if hasattr(self.mmu, 'get_vram_write_stats_v2') else None
+                tiledata_nz = vram_stats_v2.get('tiledata_writes_nonzero_count', 0) if vram_stats_v2 else 0
+                if tiledata_nz > 0:
+                    print(f"[STOP-EARLY] Primer tiledata no-cero detectado: {tiledata_nz} writes no-cero")
+                    break  # Parar ejecución
+            
+            # Step 0492: Stop early si tiledata_first_nonzero_frame existe (compatibilidad con código anterior)
+            if hasattr(self, 'stop_early_on_first_nonzero') and self.stop_early_on_first_nonzero:
                 vram_write_stats = self.mmu.get_vram_write_stats()
                 if vram_write_stats and vram_write_stats.get('tiledata_first_nonzero_frame', 0) > 0:
                     print(f"[ROM-SMOKE] Stop early: tiledata_first_nonzero_frame={vram_write_stats['tiledata_first_nonzero_frame']}")
-                    break
-            
-            # Stop early si frame == N y aún es cero
-            if frame_idx == 3000:  # O el umbral que quieras
-                vram_write_stats = self.mmu.get_vram_write_stats()
-                if vram_write_stats and vram_write_stats.get('tiledata_nonzero_after_clear', 0) == 0:
-                    print(f"[ROM-SMOKE] Stop early: frame={frame_idx}, tiledata_nonzero_after_clear=0")
                     break
             # -----------------------------------------
             
@@ -3200,6 +3216,7 @@ class ROMSmokeRunner:
         Step 0499: Clasifica rápidamente el estado DMG para diagnóstico.
         Step 0500: Ampliado con señales de progreso (v2).
         Step 0501: Usa v3 con VRAM Write Audit y PPU Mode Stats (v3).
+        Step 0502: Usa v4 con contadores cero/no-cero y source-read correlation (v4).
         
         Args:
             ppu: Instancia de PPU
@@ -3211,7 +3228,7 @@ class ROMSmokeRunner:
             - classification: String con la clasificación
             - details: Dict con detalles específicos
         """
-        return self._classify_dmg_quick_v3(ppu, mmu, renderer)
+        return self._classify_dmg_quick_v4(ppu, mmu, renderer)
     
     def _classify_dmg_quick_v2(self, ppu, mmu, renderer=None):
         """
@@ -3591,6 +3608,120 @@ class ROMSmokeRunner:
             v2_details['v3_mode_cycles'] = ppu_mode_stats.get('mode_cycles', [0, 0, 0, 0])
         
         return v2_classification, v2_details
+    
+    def _classify_dmg_quick_v4(self, ppu, mmu, renderer=None):
+        """
+        Step 0502: Clasificación DMG v4 basada en evidencia de writes cero/no-cero y source reads.
+        
+        Este clasificador usa las nuevas métricas de Step 0502:
+        - Contadores de contenido escrito (cero vs no-cero)
+        - Tracking de primer/last nonzero write
+        - Correlación source-read (si el valor escrito viene de ROM/RAM que lee cero)
+        
+        Args:
+            ppu: Instancia de PPU
+            mmu: Instancia de MMU
+            renderer: Instancia de Renderer (opcional)
+        
+        Returns:
+            Tupla (classification, details) donde:
+            - classification: String con la clasificación
+            - details: Dict con detalles específicos
+        """
+        # Obtener VRAM Write Stats v2
+        vram_stats_v2 = {}
+        try:
+            if hasattr(mmu, 'get_vram_write_stats_v2'):
+                vram_stats_v2 = mmu.get_vram_write_stats_v2() or {}
+        except:
+            pass
+        
+        if not vram_stats_v2:
+            # Fallback a v3 si v2 no está disponible
+            return self._classify_dmg_quick_v3(ppu, mmu, renderer)
+        
+        tiledata_attempts = vram_stats_v2.get('tiledata_write_attempts', 0)
+        tiledata_zero_count = vram_stats_v2.get('tiledata_writes_zero_count', 0)
+        tiledata_nonzero_count = vram_stats_v2.get('tiledata_writes_nonzero_count', 0)
+        first_nonzero = vram_stats_v2.get('first_nonzero_tiledata_write')
+        nonzero_sample = vram_stats_v2.get('nonzero_unique_values_sample', [])
+        
+        # Clasificaciones del plan Step 0502
+        
+        # 1. ONLY_CLEAR_TO_ZERO (6144 writes a 0, sin nonzero jamás)
+        if tiledata_attempts > 0 and tiledata_zero_count == tiledata_attempts and tiledata_nonzero_count == 0:
+            classification = "ONLY_CLEAR_TO_ZERO"
+            details = {
+                'tiledata_attempts': tiledata_attempts,
+                'tiledata_zero_count': tiledata_zero_count,
+                'tiledata_nonzero_count': 0,
+            }
+            return classification, details
+        
+        # 2. NONZERO_WRITTEN_THEN_CLEARED (aparece nonzero y luego vuelve a 0)
+        # Nota: Usamos tiledata_writes_nonzero_count del v2, pero no podemos verificar readback
+        # directamente sin método adicional. Por ahora, si hay writes nonzero, asumimos que hay contenido.
+        if first_nonzero and tiledata_nonzero_count > 0:
+            # TODO: Implementar método para verificar readback de VRAM si es necesario
+            # Por ahora, no podemos determinar si fue "escrito y luego borrado" sin readback
+            pass
+        
+        # 3. NONZERO_PRESENT_OK (tiledataNZ sube)
+        if first_nonzero and tiledata_nonzero_count > 0:
+            # Usamos el contador de writes nonzero como indicador de que hay contenido
+            tiledata_nz = tiledata_nonzero_count
+            
+            if tiledata_nz > 0:
+                classification = "NONZERO_PRESENT_OK"
+                details = {
+                    'first_nonzero': first_nonzero,
+                    'tiledata_nonzero_count': tiledata_nonzero_count,
+                    'tiledata_nz': tiledata_nz,
+                    'nonzero_sample': nonzero_sample,
+                }
+                return classification, details
+        
+        # 4. SOURCE_READS_ZERO (src_guess casi siempre 0) - requiere análisis del ring
+        # Verificar correlación source-read desde el ring de writes
+        vram_write_ring = []
+        try:
+            if hasattr(mmu, 'get_vram_write_ring'):
+                vram_write_ring = mmu.get_vram_write_ring(50) or []  # Últimos 50 eventos
+        except:
+            pass
+        
+        if vram_write_ring:
+            # Analizar eventos con correlación source válida
+            events_with_src = [e for e in vram_write_ring if e.get('src_correlation_valid', False)]
+            if events_with_src:
+                src_zero_count = sum(1 for e in events_with_src if e.get('src_value_guess', 1) == 0)
+                src_zero_ratio = src_zero_count / len(events_with_src) if events_with_src else 0
+                
+                # Si más del 80% de los source reads son cero y el write también es cero
+                if src_zero_ratio > 0.8:
+                    # Verificar si los writes también son cero
+                    writes_zero = sum(1 for e in events_with_src if e.get('value', 1) == 0)
+                    writes_zero_ratio = writes_zero / len(events_with_src) if events_with_src else 0
+                    
+                    if writes_zero_ratio > 0.8:
+                        classification = "SOURCE_READS_ZERO"
+                        details = {
+                            'events_with_src': len(events_with_src),
+                            'src_zero_count': src_zero_count,
+                            'src_zero_ratio': f"{src_zero_ratio:.2%}",
+                            'writes_zero_ratio': f"{writes_zero_ratio:.2%}",
+                            # Mostrar ejemplo de source addr
+                            'example_src_addr': f"0x{events_with_src[0].get('src_addr_guess', 0):04X}" if events_with_src else None,
+                            'example_src_region': events_with_src[0].get('src_region_str', 'UNKNOWN') if events_with_src else None,
+                        }
+                        return classification, details
+        
+        # 5. WAIT_LOOP_ON_ADDR_X (si hotspot lee siempre la misma addr)
+        # Esto requiere HotspotExplainer (se implementará en siguiente fase)
+        # Por ahora, usar clasificaciones v3 como fallback
+        
+        # Fallback a v3
+        return self._classify_dmg_quick_v3(ppu, mmu, renderer)
     
     def _classify_dmg_blockage(self, after_clear_snapshot: dict) -> str:
         """
@@ -4100,6 +4231,10 @@ def main():
                         help="Timeout máximo de ejecución en segundos (default: 120)")
     parser.add_argument("--stop-early-on-first-nonzero", action="store_true",
                         help="Parar cuando tiledata_first_nonzero_frame exista (Step 0492)")
+    parser.add_argument("--stop-on-first-tiledata-nonzero", action="store_true",
+                        help="Step 0502: Parar cuando se detecte primer tiledata no-cero en VRAM (readback)")
+    parser.add_argument("--stop-on-first-tiledata-nonzero-write", action="store_true",
+                        help="Step 0502: Parar cuando se detecte primer write no-cero a tiledata")
     parser.add_argument("--use-renderer-headless", action="store_true",
                         help="Usar renderer headless para capturar FB_PRESENT_SRC (Step 0497)")
     parser.add_argument("--use-renderer-windowed", action="store_true",
@@ -4116,7 +4251,9 @@ def main():
             max_seconds=args.max_seconds,
             stop_early_on_first_nonzero=args.stop_early_on_first_nonzero,
             use_renderer_headless=args.use_renderer_headless,
-            use_renderer_windowed=args.use_renderer_windowed
+            use_renderer_windowed=args.use_renderer_windowed,
+            stop_on_first_tiledata_nonzero=args.stop_on_first_tiledata_nonzero,
+            stop_on_first_tiledata_nonzero_write=args.stop_on_first_tiledata_nonzero_write
         )
         runner.run()
     except Exception as e:

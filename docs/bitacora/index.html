@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0502 - First-Nonzero Tiledata + Source-Read Correlation + Wait-Loop Explainer -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-10__0502__first-nonzero-tiledata-source-read-correlation-wait-loop-explainer.html" class="entry-link">
+                                    First-Nonzero Tiledata + Source-Read Correlation + Wait-Loop Explainer
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-10 | 
+                            <strong>Step ID:</strong> 0502 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de instrumentación avanzada para diagnosticar por qué los juegos DMG solo escriben ceros a VRAM. Se añadieron contadores de contenido escrito (cero vs no-cero) en VRAMWriteAuditStats, tracking del primer/last nonzero write con contexto completo, y un ring buffer de reads MMU para correlación source-read (detectar si la CPU está copiando ceros desde ROM/RAM). Se implementó parada automática cuando se detecta el primer write no-cero y un clasificador DMG v4 que usa estas nuevas métricas. El objetivo es obtener una respuesta binaria: ¿se intentan escribir tiles reales (nonzero)? ¿de dónde salen los valores escritos?
+                        </p>
+                    </li>
                     <!-- Entrada 0501 - DMG VRAM Tiledata Write Audit + Force-Writes A/B + IRQ Tracking Fix -->
                     <li>
                         <div class="entry-header">
